@@ -113,7 +113,46 @@ export class AugmentedTree extends RedBlackTree<DocThumbnailEncoded> {
     console.groupEnd();
   }
 
-  // NEXT: update labels properly when new insertions happen
+  removeFixup(
+    parent: AugmentedNode | null,
+    current: AugmentedNode | null,
+  ) {
+    while (parent && !current?.red) {
+      const direction: Direction = parent.left === current ? "left" : "right";
+      const siblingDirection: Direction = direction === "right"
+        ? "left"
+        : "right";
+      let sibling: AugmentedNode | null = parent[siblingDirection];
+
+      if (sibling?.red) {
+        sibling.red = false;
+        parent.red = true;
+        this.rotateNode(parent, direction);
+        sibling = parent[siblingDirection];
+      }
+      if (sibling) {
+        if (!sibling.left?.red && !sibling.right?.red) {
+          sibling!.red = true;
+          current = parent;
+          parent = current.parent;
+        } else {
+          if (!sibling[siblingDirection]?.red) {
+            sibling[direction]!.red = false;
+            sibling.red = true;
+            this.rotateNode(sibling, siblingDirection);
+            sibling = parent[siblingDirection!];
+          }
+          sibling!.red = parent.red;
+          parent.red = false;
+          sibling![siblingDirection]!.red = false;
+          this.rotateNode(parent, direction);
+          current = this.root;
+          parent = null;
+        }
+      }
+    }
+    if (current) current.red = false;
+  }
 
   insert(value: DocThumbnailEncoded): boolean {
     console.group("Inserting", value);
@@ -163,6 +202,20 @@ export class AugmentedTree extends RedBlackTree<DocThumbnailEncoded> {
     originalNode?.updateLabel(true, "Node inserted");
 
     console.groupEnd();
+
+    return !!node;
+  }
+
+  override remove(value: DocThumbnailEncoded): boolean {
+    const node = this.removeNode(value) as (AugmentedNode | null);
+
+    if (node && !node.red) {
+      this.removeFixup(node.parent, node.left ?? node.right);
+    }
+
+    if (node) {
+      node.parent?.updateLabel(true, "Succeeded");
+    }
 
     return !!node;
   }

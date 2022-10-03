@@ -13,3 +13,9 @@ for (const item of encoded) {
 for (const item of tree.lnrValueLabels()) {
   console.log(item);
 }
+
+tree.remove("/c @gema 3000");
+
+for (const item of tree.lnrValueLabels()) {
+  console.log(item);
+}
