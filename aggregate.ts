@@ -9,7 +9,7 @@ export function aggregateUntil(
 ): { label: Uint8Array; nextTree: AugmentedNode | null } {
   const { label, nextTree } = aggregateUp(node, x, y);
 
-  if (nextTree === null || nextTree.value >= y || nextTree.right === null) {
+  if (nextTree === null || nextTree.value >= y) {
     return { label, nextTree };
   } else {
     return aggregateDown(nextTree.right, y, xor(label, nextTree.valueHash));
@@ -40,14 +40,14 @@ function aggregateUp(
 }
 
 function aggregateDown(
-  node: AugmentedNode,
+  node: AugmentedNode | null,
   y: DocThumbnailEncoded,
   acc: Uint8Array,
-) {
+): { label: Uint8Array; nextTree: AugmentedNode | null } {
   let tree = node;
   let acc2 = acc;
 
-  while (true) {
+  while (tree !== null) {
     if (tree.value < y) {
       acc2 = multiXor(acc2, tree.left?.label, tree.valueHash);
 
@@ -60,6 +60,7 @@ function aggregateDown(
       tree = tree.left;
     }
   }
+  return { label: acc2, nextTree: null };
 }
 
 // NEXT: Why does the print for the full range

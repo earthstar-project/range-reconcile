@@ -5,8 +5,7 @@ import {
 } from "https://deno.land/std@0.158.0/collections/red_black_node.ts";
 
 import { hash, labelToString, makeLabel } from "./fingerprints_labels.ts";
-import { DocThumbnailEncoded } from "./types.ts";
-import { compareDocThumbnail } from "./util.ts";
+import { DocThumbnailEncoded, Fingerprint, RangeSeries } from "./types.ts";
 import { aggregateUntil } from "./aggregate.ts";
 
 export class AugmentedNode<T = DocThumbnailEncoded> extends RedBlackNode<T> {
@@ -64,7 +63,7 @@ export class AugmentedTree extends RedBlackTree<DocThumbnailEncoded> {
   declare protected root: AugmentedNode | null;
 
   constructor() {
-    super(compareDocThumbnail);
+    super();
   }
 
   rotateNode(node: AugmentedNode, direction: Direction) {
@@ -221,25 +220,46 @@ export class AugmentedTree extends RedBlackTree<DocThumbnailEncoded> {
     return !!node;
   }
 
-  aggregateUntil(
+  private aggregateUntil(
     x: DocThumbnailEncoded,
     y: DocThumbnailEncoded,
+    node: AugmentedNode,
   ) {
     if (x >= y) {
       throw new Error("x must be less than y");
     }
 
-    if (this.root === null) {
-      return null;
+    return aggregateUntil(node, x, y);
+  }
+
+  // NEXT: Fingerprint ranges
+
+  // input is a bunch of sequential ranges
+  // first item can be empty (so from the beginning...)
+  //
+  getFingerPrints(series: RangeSeries): Fingerprint[] {
+    const [head, mid, tail] = series;
+    const combined = [head, ...mid, tail];
+
+    let nodeToPass = this.findGteNode(head || " ");
+
+    const fingerprints: Uint8Array[] = [];
+
+    for (let i = 0; i < combined.length - 1; i++) {
+      if (nodeToPass === null) {
+        break;
+      }
+
+      const x = combined[i] || " ";
+      const y = combined[i + 1] || "~";
+
+      const { label, nextTree } = this.aggregateUntil(x, y, nodeToPass);
+
+      nodeToPass = nextTree;
+      fingerprints.push(label);
     }
 
-    const nodeToPass = this.findGteNode(x);
-
-    if (nodeToPass === null) {
-      return null;
-    }
-
-    return aggregateUntil(nodeToPass, x, y).label;
+    return fingerprints;
   }
 
   private findGteNode(value: DocThumbnailEncoded): AugmentedNode | null {

@@ -15,22 +15,6 @@ for (const item of tree.lnrValueLabels()) {
   console.log(item);
 }
 
-/*
-tree.remove("/c @gema 3000");
+const fingerprints = tree.getFingerPrints([null, ["/b", "/d"], null]);
 
-for (const item of tree.lnrValueLabels()) {
-  console.log(item);
-}
-*/
-
-const label = tree.aggregateUntil("/a @alfa 1000", "/e @epso 1000");
-
-if (label) {
-  console.log("Label for full range:", labelToString(label));
-} else {
-  console.log("No label");
-}
-
-// NEXT: Why does the label for the full range not match the label of b after generation?
-
-// Are the generated labels wrong?
+console.log(fingerprints.map(labelToString));
