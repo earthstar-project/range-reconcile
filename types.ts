@@ -11,10 +11,10 @@ export type ExchangeScenario = {
   b: DocThumbnailDecoded[];
 };
 
-export type RangeSeries = [
-  DocThumbnailEncoded | null,
-  DocThumbnailEncoded[],
-  DocThumbnailEncoded | null,
+export type RangeSeries<ValueType> = [
+  ValueType | null,
+  ValueType[],
+  ValueType | null,
 ];
 
 export type Fingerprint = Uint8Array;
@@ -36,3 +36,13 @@ export type RangeMessage = [
 // must be followed by
 
 export type RangeMessageEncoded = string;
+
+export type Monoid<ValueType, LiftType, NeutralType> = {
+  lift: (i: ValueType) => LiftType;
+  combine: (
+    a: LiftType | NeutralType,
+    b: LiftType | NeutralType,
+  ) => LiftType | NeutralType;
+  neutral: NeutralType;
+  oneBigger: (i: ValueType) => ValueType;
+};

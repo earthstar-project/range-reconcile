@@ -3,24 +3,33 @@ import {
   Direction,
   RedBlackNode,
 } from "https://deno.land/std@0.158.0/collections/red_black_node.ts";
+import { Monoid, RangeSeries } from "./types.ts";
 
-import { hash, labelToString, makeLabel } from "./fingerprints_labels.ts";
-import { DocThumbnailEncoded, Fingerprint, RangeSeries } from "./types.ts";
-import { aggregateUntil } from "./aggregate.ts";
+export class AugmentedNode<
+  ValueType = string,
+  LiftType = string,
+  NeutralType = string,
+> extends RedBlackNode<ValueType> {
+  declare parent: AugmentedNode<ValueType, LiftType, NeutralType> | null;
+  declare left: AugmentedNode<ValueType, LiftType, NeutralType> | null;
+  declare right: AugmentedNode<ValueType, LiftType, NeutralType> | null;
 
-export class AugmentedNode<T = DocThumbnailEncoded> extends RedBlackNode<T> {
-  declare parent: AugmentedNode<T> | null;
-  declare left: AugmentedNode<T> | null;
-  declare right: AugmentedNode<T> | null;
+  label: LiftType | NeutralType;
+  liftedValue: LiftType;
 
-  label: Uint8Array = new Uint8Array(8);
+  private monoid: Monoid<ValueType, LiftType, NeutralType>;
 
-  valueHash: Uint8Array;
-
-  constructor(parent: AugmentedNode<T> | null, value: T) {
+  constructor(
+    parent: AugmentedNode<ValueType, LiftType, NeutralType> | null,
+    value: ValueType,
+    monoid: Monoid<ValueType, LiftType, NeutralType>,
+  ) {
     super(parent, value);
 
-    this.valueHash = hash(new TextEncoder().encode(value as unknown as string));
+    this.label = monoid.neutral;
+    this.liftedValue = monoid.lift(value);
+    this.monoid = monoid;
+    //this.valueHash = hash(new TextEncoder().encode(value as unknown as string));
   }
 
   updateLabel(updateParent = true, reason?: string) {
@@ -30,25 +39,27 @@ export class AugmentedNode<T = DocThumbnailEncoded> extends RedBlackNode<T> {
       console.log(reason);
     }
 
-    console.log("Hash", labelToString(this.valueHash));
+    console.log("Lifted value", this.liftedValue);
     console.log(
-      "Left",
-      this.left?.label ? labelToString(this.left.label) : "(none)",
+      "Label L",
+      this.left?.label || this.monoid.neutral,
     );
     console.log(
-      "Right",
-      this.right?.label ? labelToString(this.right.label) : "(none)",
+      "Label R",
+      this.right?.label || this.monoid.neutral,
     );
 
     // Update our label
-    this.label = makeLabel(
-      this.valueHash,
-      this.left?.label || new Uint8Array(8),
-      this.right?.label || new Uint8Array(8),
+    this.label = this.monoid.combine(
+      this.left?.label || this.monoid.neutral,
+      this.monoid.combine(
+        this.liftedValue,
+        this.right?.label || this.monoid.neutral,
+      ),
     );
 
     console.log();
-    console.log("Label", labelToString(this.label));
+    console.log("Label", this.label);
 
     console.groupEnd();
 
@@ -59,14 +70,18 @@ export class AugmentedNode<T = DocThumbnailEncoded> extends RedBlackNode<T> {
   }
 }
 
-export class AugmentedTree extends RedBlackTree<DocThumbnailEncoded> {
-  declare protected root: AugmentedNode | null;
+export class AugmentedTree<V, L, N> extends RedBlackTree<V> {
+  declare protected root: AugmentedNode<V, L, N> | null;
 
-  constructor() {
-    super();
+  private monoid: Monoid<V, L, N>;
+
+  constructor(monoid: Monoid<V, L, N>, compare: (a: V, b: V) => number) {
+    super(compare);
+
+    this.monoid = monoid;
   }
 
-  rotateNode(node: AugmentedNode, direction: Direction) {
+  rotateNode(node: AugmentedNode<V, L, N>, direction: Direction) {
     const replacementDirection: Direction = direction === "left"
       ? "right"
       : "left";
@@ -78,7 +93,7 @@ export class AugmentedTree extends RedBlackTree<DocThumbnailEncoded> {
 
     console.group("Rotating", direction);
 
-    const replacement: AugmentedNode = node[replacementDirection]!;
+    const replacement: AugmentedNode<V, L, N> = node[replacementDirection]!;
     node[replacementDirection] = replacement[direction] ?? null;
 
     // if the replacement has a node in the rotation direction
@@ -114,15 +129,15 @@ export class AugmentedTree extends RedBlackTree<DocThumbnailEncoded> {
   }
 
   removeFixup(
-    parent: AugmentedNode | null,
-    current: AugmentedNode | null,
+    parent: AugmentedNode<V, L, N> | null,
+    current: AugmentedNode<V, L, N> | null,
   ) {
     while (parent && !current?.red) {
       const direction: Direction = parent.left === current ? "left" : "right";
       const siblingDirection: Direction = direction === "right"
         ? "left"
         : "right";
-      let sibling: AugmentedNode | null = parent[siblingDirection];
+      let sibling: AugmentedNode<V, L, N> | null = parent[siblingDirection];
 
       if (sibling?.red) {
         sibling.red = false;
@@ -154,27 +169,52 @@ export class AugmentedTree extends RedBlackTree<DocThumbnailEncoded> {
     if (current) current.red = false;
   }
 
-  insert(value: DocThumbnailEncoded): boolean {
+  insertAugmentedNode(
+    value: V,
+  ): AugmentedNode<V, L, N> | null {
+    if (!this.root) {
+      this.root = new AugmentedNode(null, value, this.monoid);
+      this._size++;
+      return this.root;
+    } else {
+      let node: AugmentedNode<V, L, N> = this.root;
+      while (true) {
+        const order: number = this.compare(value, node.value);
+        if (order === 0) break;
+        const direction: Direction = order < 0 ? "left" : "right";
+        if (node[direction]) {
+          node = node[direction]!;
+        } else {
+          node[direction] = new AugmentedNode(null, value, this.monoid);
+          this._size++;
+          return node[direction];
+        }
+      }
+    }
+    return null;
+  }
+
+  insert(value: V): boolean {
     console.group("Inserting", value);
 
-    const originalNode = this.insertNode(
-      AugmentedNode,
+    const originalNode = this.insertAugmentedNode(
       value,
-    ) as (AugmentedNode | null);
+    );
 
     let node = originalNode;
 
     if (node) {
       while (node.parent?.red) {
-        let parent: AugmentedNode = node.parent!;
+        let parent: AugmentedNode<V, L, N> = node.parent!;
         const parentDirection: Direction = parent.directionFromParent()!;
         const uncleDirection: Direction = parentDirection === "right"
           ? "left"
           : "right";
 
         // The uncle is the sibling on the same side of the parent's parent.
-        const uncle: AugmentedNode | null = parent.parent![uncleDirection] ??
-          null;
+        const uncle: AugmentedNode<V, L, N> | null =
+          parent.parent![uncleDirection] ??
+            null;
 
         if (uncle?.red) {
           parent.red = false;
@@ -206,8 +246,8 @@ export class AugmentedTree extends RedBlackTree<DocThumbnailEncoded> {
     return !!node;
   }
 
-  override remove(value: DocThumbnailEncoded): boolean {
-    const node = this.removeNode(value) as (AugmentedNode | null);
+  override remove(value: V): boolean {
+    const node = this.removeNode(value) as (AugmentedNode<V, L, N> | null);
 
     if (node && !node.red) {
       this.removeFixup(node.parent, node.left ?? node.right);
@@ -220,40 +260,40 @@ export class AugmentedTree extends RedBlackTree<DocThumbnailEncoded> {
     return !!node;
   }
 
-  private aggregateUntil(
-    x: DocThumbnailEncoded,
-    y: DocThumbnailEncoded,
-    node: AugmentedNode,
-  ) {
-    if (x >= y) {
-      throw new Error("x must be less than y");
-    }
-
-    return aggregateUntil(node, x, y);
-  }
-
   // NEXT: Fingerprint ranges
 
   // input is a bunch of sequential ranges
   // first item can be empty (so from the beginning...)
   //
-  getFingerPrints(series: RangeSeries): Fingerprint[] {
+  getFingerPrints(series: RangeSeries<V>): (L | N)[] {
+    if (this.root === null) {
+      return [];
+    }
+
     const [head, mid, tail] = series;
-    const combined = [head, ...mid, tail];
 
-    let nodeToPass = this.findGteNode(head || " ");
+    const first = head || this.root.findMinNode().value;
+    const last = tail || this.monoid.oneBigger(this.root.findMaxNode().value);
 
-    const fingerprints: Uint8Array[] = [];
+    const combined = [first, ...mid, last];
+
+    let nodeToPass: AugmentedNode<V, L, N> | null = head
+      ? this.findGteNode(head) as AugmentedNode<V, L, N>
+      : this.root.findMinNode() as AugmentedNode<V, L, N>;
+
+    const fingerprints: (L | N)[] = [];
 
     for (let i = 0; i < combined.length - 1; i++) {
       if (nodeToPass === null) {
         break;
       }
 
-      const x = combined[i] || " ";
-      const y = combined[i + 1] || "~";
+      const x = combined[i];
+      const y = combined[i + 1];
 
-      const { label, nextTree } = this.aggregateUntil(x, y, nodeToPass);
+      console.log(x, y);
+
+      const { label, nextTree } = this.aggregateUntil(nodeToPass, x, y);
 
       nodeToPass = nextTree;
       fingerprints.push(label);
@@ -262,8 +302,10 @@ export class AugmentedTree extends RedBlackTree<DocThumbnailEncoded> {
     return fingerprints;
   }
 
-  private findGteNode(value: DocThumbnailEncoded): AugmentedNode | null {
-    let node: AugmentedNode | null = this.root;
+  private findGteNode(
+    value: V,
+  ): AugmentedNode<V, L, N> | null {
+    let node: AugmentedNode<V, L, N> | null = this.root;
     while (node) {
       const order: number = this.compare(value, node.value);
       if (order === 0) break;
@@ -278,18 +320,88 @@ export class AugmentedTree extends RedBlackTree<DocThumbnailEncoded> {
     return node;
   }
 
-  *lnrValueLabels(): IterableIterator<[string, string]> {
-    const nodes: AugmentedNode[] = [];
-    let node: AugmentedNode | null = this.root;
-    while (nodes.length || node) {
-      if (node) {
-        nodes.push(node);
-        node = node.left;
+  private aggregateUntil(
+    node: AugmentedNode<V, L, N>,
+    x: V,
+    y: V,
+  ): { label: L | N; nextTree: AugmentedNode<V, L, N> | null } {
+    // if x === y
+
+    const { label, nextTree } = this.aggregateUp(node, x, y);
+
+    if (nextTree === null || this.compare(nextTree.value, y) > 0) {
+      return { label, nextTree };
+    } else {
+      return this.aggregateDown(
+        nextTree.right,
+        y,
+        this.monoid.combine(label, nextTree.liftedValue),
+      );
+    }
+  }
+
+  private aggregateUp(
+    node: AugmentedNode<V, L, N>,
+    x: V,
+    y: V,
+  ): { label: L | N; nextTree: AugmentedNode<V, L, N> | null } {
+    let acc: L | N = this.monoid.neutral;
+    let tree = node;
+
+    while (tree.findMaxNode().value < y) {
+      if (tree.value >= x) {
+        acc = this.monoid.combine(
+          acc,
+          this.monoid.combine(
+            tree.liftedValue,
+            tree.right?.label || this.monoid.neutral,
+          ),
+        );
+      }
+
+      if (tree.parent === null) {
+        return { label: acc, nextTree: null };
       } else {
-        node = nodes.pop()!;
-        yield [node.value, labelToString(node.label)];
-        node = node.right;
+        tree = tree.parent;
       }
     }
+
+    return { label: acc, nextTree: tree };
+  }
+
+  private aggregateDown(
+    node: AugmentedNode<V, L, N> | null,
+    y: V,
+    acc: L | N,
+  ): { label: L | N; nextTree: AugmentedNode<V, L, N> | null } {
+    let tree = node;
+    let acc2 = acc;
+
+    while (tree !== null) {
+      if (tree.value < y) {
+        acc2 = this.monoid.combine(
+          acc2,
+          this.monoid.combine(
+            tree.left?.label || this.monoid.neutral,
+            tree.liftedValue,
+          ),
+        );
+
+        if (tree.right) {
+          tree = tree.right;
+        }
+      } else if (tree.left === null || tree.left.findMaxNode().value < y) {
+        return {
+          label: this.monoid.combine(
+            acc2,
+            tree.left?.label || this.monoid.neutral,
+          ),
+          nextTree: tree,
+        };
+      } else {
+        tree = tree.left;
+      }
+    }
+    return { label: acc2, nextTree: null };
   }
 }
