@@ -7,15 +7,16 @@ import {
 import { hash, labelToString, makeLabel } from "./fingerprints_labels.ts";
 import { DocThumbnailEncoded } from "./types.ts";
 import { compareDocThumbnail } from "./util.ts";
+import { aggregateUntil } from "./aggregate.ts";
 
-class AugmentedNode<T = DocThumbnailEncoded> extends RedBlackNode<T> {
+export class AugmentedNode<T = DocThumbnailEncoded> extends RedBlackNode<T> {
   declare parent: AugmentedNode<T> | null;
   declare left: AugmentedNode<T> | null;
   declare right: AugmentedNode<T> | null;
 
   label: Uint8Array = new Uint8Array(8);
 
-  private valueHash: Uint8Array;
+  valueHash: Uint8Array;
 
   constructor(parent: AugmentedNode<T> | null, value: T) {
     super(parent, value);
@@ -218,6 +219,43 @@ export class AugmentedTree extends RedBlackTree<DocThumbnailEncoded> {
     }
 
     return !!node;
+  }
+
+  aggregateUntil(
+    x: DocThumbnailEncoded,
+    y: DocThumbnailEncoded,
+  ) {
+    if (x >= y) {
+      throw new Error("x must be less than y");
+    }
+
+    if (this.root === null) {
+      return null;
+    }
+
+    const nodeToPass = this.findGteNode(x);
+
+    if (nodeToPass === null) {
+      return null;
+    }
+
+    return aggregateUntil(nodeToPass, x, y).label;
+  }
+
+  private findGteNode(value: DocThumbnailEncoded): AugmentedNode | null {
+    let node: AugmentedNode | null = this.root;
+    while (node) {
+      const order: number = this.compare(value, node.value);
+      if (order === 0) break;
+      const direction: "left" | "right" = order < 0 ? "left" : "right";
+
+      if (node[direction]) {
+        node = node[direction];
+      } else {
+        break;
+      }
+    }
+    return node;
   }
 
   *lnrValueLabels(): IterableIterator<[string, string]> {

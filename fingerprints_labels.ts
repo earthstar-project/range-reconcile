@@ -22,8 +22,27 @@ export function xor(a: Uint8Array, b: Uint8Array): Uint8Array {
   return res;
 }
 
+export function multiXor(...args: (Uint8Array | undefined)[]): Uint8Array {
+  let res = new Uint8Array(8);
+
+  for (const item of args) {
+    if (item === undefined) {
+      continue;
+    }
+
+    console.group(labelToString(res), "+", labelToString(item));
+
+    res = xor(res, item);
+
+    console.log(labelToString(res));
+    console.groupEnd();
+  }
+
+  return res || new Uint8Array(8);
+}
+
 export function makeLabel(v: Uint8Array, l: Uint8Array, r: Uint8Array) {
-  return xor(v, xor(r, l));
+  return multiXor(l, v, r);
 }
 
 export function labelToString(uint8: Uint8Array): string {
