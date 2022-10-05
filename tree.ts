@@ -5,63 +5,61 @@ import {
 } from "https://deno.land/std@0.158.0/collections/red_black_node.ts";
 import { Monoid, RangeSeries } from "./types.ts";
 
-export class AugmentedNode<
+const debug = false;
+
+export class FingerprintNode<
   ValueType = string,
   LiftType = string,
   NeutralType = string,
 > extends RedBlackNode<ValueType> {
-  declare parent: AugmentedNode<ValueType, LiftType, NeutralType> | null;
-  declare left: AugmentedNode<ValueType, LiftType, NeutralType> | null;
-  declare right: AugmentedNode<ValueType, LiftType, NeutralType> | null;
+  declare parent: FingerprintNode<ValueType, LiftType, NeutralType> | null;
+  declare left: FingerprintNode<ValueType, LiftType, NeutralType> | null;
+  declare right: FingerprintNode<ValueType, LiftType, NeutralType> | null;
 
-  label: LiftType | NeutralType;
+  fingerprint: LiftType | NeutralType;
   liftedValue: LiftType;
 
   private monoid: Monoid<ValueType, LiftType, NeutralType>;
 
   constructor(
-    parent: AugmentedNode<ValueType, LiftType, NeutralType> | null,
+    parent: FingerprintNode<ValueType, LiftType, NeutralType> | null,
     value: ValueType,
     monoid: Monoid<ValueType, LiftType, NeutralType>,
   ) {
     super(parent, value);
 
-    this.label = monoid.neutral;
+    this.fingerprint = monoid.neutral;
     this.liftedValue = monoid.lift(value);
     this.monoid = monoid;
-    //this.valueHash = hash(new TextEncoder().encode(value as unknown as string));
   }
 
   updateLabel(updateParent = true, reason?: string) {
-    console.group("Updating...", this.value);
-
-    if (reason) {
-      console.log(reason);
-    }
-
-    console.log("Lifted value", this.liftedValue);
-    console.log(
-      "Label L",
-      this.left?.label || this.monoid.neutral,
-    );
-    console.log(
-      "Label R",
-      this.right?.label || this.monoid.neutral,
-    );
-
     // Update our label
-    this.label = this.monoid.combine(
-      this.left?.label || this.monoid.neutral,
+    this.fingerprint = this.monoid.combine(
+      this.left?.fingerprint || this.monoid.neutral,
       this.monoid.combine(
         this.liftedValue,
-        this.right?.label || this.monoid.neutral,
+        this.right?.fingerprint || this.monoid.neutral,
       ),
     );
 
-    console.log();
-    console.log("Label", this.label);
-
-    console.groupEnd();
+    if (debug) {
+      if (reason) {
+        console.log(reason);
+      }
+      console.group("Updating...", this.value);
+      console.log("Lifted value", this.liftedValue);
+      console.log(
+        "Label L",
+        this.left?.fingerprint || this.monoid.neutral,
+      );
+      console.log(
+        "Label R",
+        this.right?.fingerprint || this.monoid.neutral,
+      );
+      console.log("Label", this.fingerprint);
+      console.groupEnd();
+    }
 
     // Update all parent labels all the way to the top...
     if (updateParent) {
@@ -70,18 +68,24 @@ export class AugmentedNode<
   }
 }
 
-export class AugmentedTree<V, L, N> extends RedBlackTree<V> {
-  declare protected root: AugmentedNode<V, L, N> | null;
+export class FingerprintTree<V, L, N> extends RedBlackTree<V> {
+  declare protected root: FingerprintNode<V, L, N> | null;
 
   private monoid: Monoid<V, L, N>;
+  private oneBigger: (v: V) => V;
 
-  constructor(monoid: Monoid<V, L, N>, compare: (a: V, b: V) => number) {
+  constructor(
+    monoid: Monoid<V, L, N>,
+    compare: (a: V, b: V) => number,
+    oneBigger: (v: V) => V,
+  ) {
     super(compare);
 
     this.monoid = monoid;
+    this.oneBigger = oneBigger;
   }
 
-  rotateNode(node: AugmentedNode<V, L, N>, direction: Direction) {
+  rotateNode(node: FingerprintNode<V, L, N>, direction: Direction) {
     const replacementDirection: Direction = direction === "left"
       ? "right"
       : "left";
@@ -91,9 +95,9 @@ export class AugmentedTree<V, L, N> extends RedBlackTree<V> {
       );
     }
 
-    console.group("Rotating", direction);
+    if (debug) console.group("Rotating", direction);
 
-    const replacement: AugmentedNode<V, L, N> = node[replacementDirection]!;
+    const replacement: FingerprintNode<V, L, N> = node[replacementDirection]!;
     node[replacementDirection] = replacement[direction] ?? null;
 
     // if the replacement has a node in the rotation direction
@@ -129,15 +133,15 @@ export class AugmentedTree<V, L, N> extends RedBlackTree<V> {
   }
 
   removeFixup(
-    parent: AugmentedNode<V, L, N> | null,
-    current: AugmentedNode<V, L, N> | null,
+    parent: FingerprintNode<V, L, N> | null,
+    current: FingerprintNode<V, L, N> | null,
   ) {
     while (parent && !current?.red) {
       const direction: Direction = parent.left === current ? "left" : "right";
       const siblingDirection: Direction = direction === "right"
         ? "left"
         : "right";
-      let sibling: AugmentedNode<V, L, N> | null = parent[siblingDirection];
+      let sibling: FingerprintNode<V, L, N> | null = parent[siblingDirection];
 
       if (sibling?.red) {
         sibling.red = false;
@@ -169,24 +173,26 @@ export class AugmentedTree<V, L, N> extends RedBlackTree<V> {
     if (current) current.red = false;
   }
 
-  insertAugmentedNode(
+  private insertFingerprintNode(
     value: V,
-  ): AugmentedNode<V, L, N> | null {
+  ): FingerprintNode<V, L, N> | null {
     if (!this.root) {
-      this.root = new AugmentedNode(null, value, this.monoid);
+      this.root = new FingerprintNode(null, value, this.monoid);
       this._size++;
       return this.root;
     } else {
-      let node: AugmentedNode<V, L, N> = this.root;
+      let node: FingerprintNode<V, L, N> = this.root;
       while (true) {
         const order: number = this.compare(value, node.value);
+
         if (order === 0) break;
         const direction: Direction = order < 0 ? "left" : "right";
         if (node[direction]) {
           node = node[direction]!;
         } else {
-          node[direction] = new AugmentedNode(null, value, this.monoid);
+          node[direction] = new FingerprintNode(node, value, this.monoid);
           this._size++;
+
           return node[direction];
         }
       }
@@ -195,9 +201,7 @@ export class AugmentedTree<V, L, N> extends RedBlackTree<V> {
   }
 
   insert(value: V): boolean {
-    console.group("Inserting", value);
-
-    const originalNode = this.insertAugmentedNode(
+    const originalNode = this.insertFingerprintNode(
       value,
     );
 
@@ -205,14 +209,14 @@ export class AugmentedTree<V, L, N> extends RedBlackTree<V> {
 
     if (node) {
       while (node.parent?.red) {
-        let parent: AugmentedNode<V, L, N> = node.parent!;
+        let parent: FingerprintNode<V, L, N> = node.parent!;
         const parentDirection: Direction = parent.directionFromParent()!;
         const uncleDirection: Direction = parentDirection === "right"
           ? "left"
           : "right";
 
         // The uncle is the sibling on the same side of the parent's parent.
-        const uncle: AugmentedNode<V, L, N> | null =
+        const uncle: FingerprintNode<V, L, N> | null =
           parent.parent![uncleDirection] ??
             null;
 
@@ -247,7 +251,7 @@ export class AugmentedTree<V, L, N> extends RedBlackTree<V> {
   }
 
   override remove(value: V): boolean {
-    const node = this.removeNode(value) as (AugmentedNode<V, L, N> | null);
+    const node = this.removeNode(value) as (FingerprintNode<V, L, N> | null);
 
     if (node && !node.red) {
       this.removeFixup(node.parent, node.left ?? node.right);
@@ -272,14 +276,14 @@ export class AugmentedTree<V, L, N> extends RedBlackTree<V> {
 
     const [head, mid, tail] = series;
 
-    const first = head || this.root.findMinNode().value;
-    const last = tail || this.monoid.oneBigger(this.root.findMaxNode().value);
+    const first = head;
+    const last = tail;
 
     const combined = [first, ...mid, last];
 
-    let nodeToPass: AugmentedNode<V, L, N> | null = head
-      ? this.findGteNode(head) as AugmentedNode<V, L, N>
-      : this.root.findMinNode() as AugmentedNode<V, L, N>;
+    let nodeToPass: FingerprintNode<V, L, N> | null = this.findGteNode(
+      head,
+    ) as FingerprintNode<V, L, N>;
 
     const fingerprints: (L | N)[] = [];
 
@@ -291,12 +295,38 @@ export class AugmentedTree<V, L, N> extends RedBlackTree<V> {
       const x = combined[i];
       const y = combined[i + 1];
 
-      console.log(x, y);
+      if (this.compare(y, x) <= 0) {
+        const { label: label0 } = this.aggregateUntil(
+          nodeToPass,
+          x,
+          this.root.findMaxNode().value,
+        );
 
-      const { label, nextTree } = this.aggregateUntil(nodeToPass, x, y);
+        const label = this.monoid.combine(
+          label0,
+          this.monoid.lift(this.root.findMaxNode().value),
+        );
 
-      nodeToPass = nextTree;
-      fingerprints.push(label);
+        const minNode = this.root.findMinNode();
+
+        const { label: label2, nextTree } = this.aggregateUntil(
+          minNode as FingerprintNode<V, L, N>,
+          minNode.value,
+          y,
+        );
+
+        fingerprints.push(this.monoid.combine(label, label2));
+        nodeToPass = nextTree;
+      } else {
+        const { label, nextTree } = this.aggregateUntil(
+          nodeToPass,
+          x,
+          y,
+        );
+
+        nodeToPass = nextTree;
+        fingerprints.push(label);
+      }
     }
 
     return fingerprints;
@@ -304,8 +334,8 @@ export class AugmentedTree<V, L, N> extends RedBlackTree<V> {
 
   private findGteNode(
     value: V,
-  ): AugmentedNode<V, L, N> | null {
-    let node: AugmentedNode<V, L, N> | null = this.root;
+  ): FingerprintNode<V, L, N> | null {
+    let node: FingerprintNode<V, L, N> | null = this.root;
     while (node) {
       const order: number = this.compare(value, node.value);
       if (order === 0) break;
@@ -321,15 +351,13 @@ export class AugmentedTree<V, L, N> extends RedBlackTree<V> {
   }
 
   private aggregateUntil(
-    node: AugmentedNode<V, L, N>,
+    node: FingerprintNode<V, L, N>,
     x: V,
     y: V,
-  ): { label: L | N; nextTree: AugmentedNode<V, L, N> | null } {
-    // if x === y
-
+  ): { label: L | N; nextTree: FingerprintNode<V, L, N> | null } {
     const { label, nextTree } = this.aggregateUp(node, x, y);
 
-    if (nextTree === null || this.compare(nextTree.value, y) > 0) {
+    if (nextTree === null || this.compare(nextTree.value, y) >= 0) {
       return { label, nextTree };
     } else {
       return this.aggregateDown(
@@ -341,10 +369,10 @@ export class AugmentedTree<V, L, N> extends RedBlackTree<V> {
   }
 
   private aggregateUp(
-    node: AugmentedNode<V, L, N>,
+    node: FingerprintNode<V, L, N>,
     x: V,
     y: V,
-  ): { label: L | N; nextTree: AugmentedNode<V, L, N> | null } {
+  ): { label: L | N; nextTree: FingerprintNode<V, L, N> | null } {
     let acc: L | N = this.monoid.neutral;
     let tree = node;
 
@@ -354,7 +382,7 @@ export class AugmentedTree<V, L, N> extends RedBlackTree<V> {
           acc,
           this.monoid.combine(
             tree.liftedValue,
-            tree.right?.label || this.monoid.neutral,
+            tree.right?.fingerprint || this.monoid.neutral,
           ),
         );
       }
@@ -370,10 +398,10 @@ export class AugmentedTree<V, L, N> extends RedBlackTree<V> {
   }
 
   private aggregateDown(
-    node: AugmentedNode<V, L, N> | null,
+    node: FingerprintNode<V, L, N> | null,
     y: V,
     acc: L | N,
-  ): { label: L | N; nextTree: AugmentedNode<V, L, N> | null } {
+  ): { label: L | N; nextTree: FingerprintNode<V, L, N> | null } {
     let tree = node;
     let acc2 = acc;
 
@@ -382,19 +410,17 @@ export class AugmentedTree<V, L, N> extends RedBlackTree<V> {
         acc2 = this.monoid.combine(
           acc2,
           this.monoid.combine(
-            tree.left?.label || this.monoid.neutral,
+            tree.left?.fingerprint || this.monoid.neutral,
             tree.liftedValue,
           ),
         );
 
-        if (tree.right) {
-          tree = tree.right;
-        }
+        tree = tree.right;
       } else if (tree.left === null || tree.left.findMaxNode().value < y) {
         return {
           label: this.monoid.combine(
             acc2,
-            tree.left?.label || this.monoid.neutral,
+            tree.left?.fingerprint || this.monoid.neutral,
           ),
           nextTree: tree,
         };
