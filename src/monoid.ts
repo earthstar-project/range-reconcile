@@ -61,5 +61,4 @@ export const xorMonoid = {
     return res;
   },
   neutral: new Uint8Array(8),
-  oneBigger: (v: string) => v + 1,
 };
