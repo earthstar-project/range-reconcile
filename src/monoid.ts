@@ -1,5 +1,13 @@
 import { xxHash32 } from "https://raw.githubusercontent.com/gnlow/deno-xxhash/master/mod.ts";
-import { Monoid } from "./types.ts";
+
+export type Monoid<ValueType, LiftType, NeutralType> = {
+  lift: (i: ValueType) => LiftType;
+  combine: (
+    a: LiftType | NeutralType,
+    b: LiftType | NeutralType,
+  ) => LiftType | NeutralType;
+  neutral: NeutralType;
+};
 
 export function combineMonoid<V, AL, AN, BL, BN>(
   a: Monoid<V, AL, AN>,
@@ -32,8 +40,8 @@ export const testMonoid = {
   neutral: "0",
 };
 
-export const sizeMonoid: Monoid<any, number, 0> = {
-  lift: (a: any) => 1,
+export const sizeMonoid: Monoid<unknown, number, 0> = {
+  lift: (_a: unknown) => 1,
   combine: (a: number, b: number) => a + b,
   neutral: 0,
 };

@@ -18,7 +18,7 @@ export function decodeDocThumbnail(
   return { path, author, timestamp: parseInt(timestamp) };
 }
 
-export function labelToString(uint8: Uint8Array): string {
+export function uint8ToString(uint8: Uint8Array): string {
   const view = new DataView(uint8.buffer, 0);
 
   return view.getUint32(0, true).toString(16);

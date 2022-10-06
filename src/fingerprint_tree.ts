@@ -3,7 +3,7 @@ import {
   Direction,
   RedBlackNode,
 } from "https://deno.land/std@0.158.0/collections/red_black_node.ts";
-import { Monoid, RangeSeries } from "./types.ts";
+import { Monoid } from "./monoid.ts";
 
 const debug = false;
 
@@ -72,17 +72,14 @@ export class FingerprintTree<V, L, N> extends RedBlackTree<V> {
   declare protected root: FingerprintNode<V, L, N> | null;
 
   private monoid: Monoid<V, L, N>;
-  private oneBigger: (v: V) => V;
 
   constructor(
     monoid: Monoid<V, L, N>,
-    compare: (a: V, b: V) => number,
-    oneBigger: (v: V) => V,
+    compare?: (a: V, b: V) => number,
   ) {
     super(compare);
 
     this.monoid = monoid;
-    this.oneBigger = oneBigger;
   }
 
   rotateNode(node: FingerprintNode<V, L, N>, direction: Direction) {
@@ -264,22 +261,16 @@ export class FingerprintTree<V, L, N> extends RedBlackTree<V> {
     return !!node;
   }
 
-  // NEXT: Fingerprint ranges
+  getFingerprint(x: V, y: V): L | N {
+    return this.getFingerPrints([x, y])[0];
+  }
 
-  // input is a bunch of sequential ranges
-  // first item can be empty (so from the beginning...)
-  //
-  getFingerPrints(series: RangeSeries<V>): (L | N)[] {
+  getFingerPrints(series: V[]): (L | N)[] {
     if (this.root === null) {
       return [];
     }
 
-    const [head, mid, tail] = series;
-
-    const first = head;
-    const last = tail;
-
-    const combined = [first, ...mid, last];
+    const [head] = series;
 
     let nodeToPass: FingerprintNode<V, L, N> | null = this.findGteNode(
       head,
@@ -287,37 +278,19 @@ export class FingerprintTree<V, L, N> extends RedBlackTree<V> {
 
     const fingerprints: (L | N)[] = [];
 
-    for (let i = 0; i < combined.length - 1; i++) {
+    for (let i = 0; i < series.length - 1; i++) {
       if (nodeToPass === null) {
         break;
       }
 
-      const x = combined[i];
-      const y = combined[i + 1];
+      const x = series[i];
+      const y = series[i + 1];
 
-      if (this.compare(y, x) <= 0) {
-        const { label: label0 } = this.aggregateUntil(
-          nodeToPass,
-          x,
-          this.root.findMaxNode().value,
-        );
+      const order = this.compare(x, y);
 
-        const label = this.monoid.combine(
-          label0,
-          this.monoid.lift(this.root.findMaxNode().value),
-        );
-
-        const minNode = this.root.findMinNode();
-
-        const { label: label2, nextTree } = this.aggregateUntil(
-          minNode as FingerprintNode<V, L, N>,
-          minNode.value,
-          y,
-        );
-
-        fingerprints.push(this.monoid.combine(label, label2));
-        nodeToPass = nextTree;
-      } else {
+      if (order === 0) {
+        fingerprints.push(this.root.fingerprint);
+      } else if (order < 0) {
         const { label, nextTree } = this.aggregateUntil(
           nodeToPass,
           x,
@@ -326,6 +299,37 @@ export class FingerprintTree<V, L, N> extends RedBlackTree<V> {
 
         nodeToPass = nextTree;
         fingerprints.push(label);
+      } else {
+        const minNode = this.root.findMinNode();
+        const maxNode = this.root.findMaxNode();
+
+        const { label: label0, nextTree: nextTree0 } = this.aggregateUntil(
+          nodeToPass,
+          x,
+          maxNode.value,
+        );
+
+        const label = this.monoid.combine(
+          label0,
+          this.compare(maxNode.value, x) > 0
+            ? this.monoid.lift(maxNode.value)
+            : this.monoid.neutral,
+        );
+
+        if (minNode.value === y) {
+          fingerprints.push(label);
+          nodeToPass = nextTree0;
+          continue;
+        }
+
+        const { label: label2, nextTree } = this.aggregateUntil(
+          minNode as FingerprintNode<V, L, N>,
+          minNode.value,
+          y,
+        );
+
+        fingerprints.push(this.monoid.combine(label2, label));
+        nodeToPass = nextTree;
       }
     }
 

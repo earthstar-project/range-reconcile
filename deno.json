@@ -1,0 +1,6 @@
+{
+  "tasks": {
+    "test": "deno test src",
+    "bench": "deno bench --unstable src"
+  }
+}

@@ -1,4 +1,4 @@
-import { FingerprintTree } from "./tree.ts";
+import { FingerprintTree } from "./fingerprint_tree.ts";
 import {
   RangeItem,
   RangeMessage,
