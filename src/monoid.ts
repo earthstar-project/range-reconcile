@@ -29,7 +29,7 @@ export function combineMonoid<V, AL, AN, BL, BN>(
 
 //
 
-export const testMonoid = {
+export const testMonoid: Monoid<string, string, string> = {
   lift: (a: string) => a,
   combine: (a: string, b: string) => {
     const fst = a === "0" ? "" : a;
@@ -46,8 +46,8 @@ export const sizeMonoid: Monoid<unknown, number, 0> = {
   neutral: 0,
 };
 
-export const xorMonoid = {
-  lift: (v: string) => {
+export const xorMonoid: Monoid<Uint8Array, Uint8Array, Uint8Array> = {
+  lift: (v: Uint8Array) => {
     const hash = xxHash32(v).toString(16);
     return new TextEncoder().encode(hash);
   },

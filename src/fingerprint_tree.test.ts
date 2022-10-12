@@ -2,38 +2,20 @@ import { assertEquals } from "https://deno.land/std@0.158.0/testing/asserts.ts";
 import { testMonoid } from "./monoid.ts";
 import { FingerprintTree } from "./fingerprint_tree.ts";
 
-type RangeVector = [[string, string], string];
+type RangeVector = [[string, string], string, number, string[]];
 
 const rangeVectors: RangeVector[] = [
-  [["a", "a"], "abcdefg"],
-  [["a", "d"], "abc"],
-  [["c", "a"], "cdefg"],
-  [["c", "g"], "cdef"],
-  [["e", "a"], "efg"],
-  [["b", "b"], "abcdefg"],
-  [["c", "b"], "acdefg"],
-  [["e", "b"], "aefg"],
-  [["m", "d"], "abc"],
-  [["m", "z"], "0"],
-  [["f", "z"], "fg"],
-];
-
-type SeriesVector = [string[], string[]];
-
-const seriesVectors: SeriesVector[] = [
-  [["a", "a"], ["abcdefg"]],
-
-  [["a", "d", "a"], ["abc", "defg"]],
-
-  [["a", "d", "e"], ["abc", "d"]],
-
-  [["a", "c", "e", "a"], ["ab", "cd", "efg"]],
-
-  [["b", "e", "b"], ["bcd", "aefg"]],
-
-  [["b", "d", "f", "b"], ["bc", "de", "afg"]],
-
-  [["b", "b"], ["abcdefg"]],
+  [["a", "a"], "abcdefg", 7, ["a", "b", "c", "d", "e", "f", "g"]],
+  [["a", "d"], "abc", 3, ["a", "b", "c"]],
+  [["c", "a"], "cdefg", 5, ["c", "d", "e", "f", "g"]],
+  [["c", "g"], "cdef", 4, ["c", "d", "e", "f"]],
+  [["e", "a"], "efg", 3, ["e", "f", "g"]],
+  [["b", "b"], "abcdefg", 7, ["a", "b", "c", "d", "e", "f", "g"]],
+  [["c", "b"], "acdefg", 6, ["a", "c", "d", "e", "f", "g"]],
+  [["e", "b"], "aefg", 4, ["a", "e", "f", "g"]],
+  [["m", "d"], "abc", 3, ["a", "b", "c"]],
+  [["m", "z"], "0", 0, []],
+  [["f", "z"], "fg", 2, ["f", "g"]],
 ];
 
 Deno.test("FingerprintTree", () => {
@@ -56,13 +38,21 @@ Deno.test("FingerprintTree", () => {
   assertEquals(set, treeContents);
 
   for (const vector of rangeVectors) {
+    const result = tree.getFingerprint(vector[0][0], vector[0][1]);
+
     assertEquals(
-      tree.getFingerprint(vector[0][0], vector[0][1]),
+      result.fingerprint,
       vector[1],
     );
-  }
 
-  for (const vector of seriesVectors) {
-    assertEquals(tree.getFingerPrints(vector[0]), vector[1]);
+    assertEquals(
+      result.size,
+      vector[2],
+    );
+
+    assertEquals(
+      result.items,
+      vector[3],
+    );
   }
 });
