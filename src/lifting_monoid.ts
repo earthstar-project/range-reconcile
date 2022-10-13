@@ -1,18 +1,18 @@
 import { xxHash32 } from "https://raw.githubusercontent.com/gnlow/deno-xxhash/master/mod.ts";
 
-export type Monoid<ValueType, LiftType, NeutralType> = {
-  lift: (i: ValueType) => LiftType;
+export type LiftingMonoid<ValueType, LiftedType> = {
+  lift: (i: ValueType) => LiftedType;
   combine: (
-    a: LiftType | NeutralType,
-    b: LiftType | NeutralType,
-  ) => LiftType | NeutralType;
-  neutral: NeutralType;
+    a: LiftedType,
+    b: LiftedType,
+  ) => LiftedType;
+  neutral: LiftedType;
 };
 
-export function combineMonoid<V, AL, AN, BL, BN>(
-  a: Monoid<V, AL, AN>,
-  b: Monoid<V, BL, BN>,
-): Monoid<V, [AL, BL], [AN, BN]> {
+export function combineMonoid<V, AL, BL>(
+  a: LiftingMonoid<V, AL>,
+  b: LiftingMonoid<V, BL>,
+): LiftingMonoid<V, [AL, BL]> {
   return {
     lift: (i) => {
       return [a.lift(i), b.lift(i)];
@@ -21,7 +21,7 @@ export function combineMonoid<V, AL, AN, BL, BN>(
       const fst = a.combine(ia[0], ib[0]);
       const snd = b.combine(ia[1], ib[1]);
 
-      return [fst, snd] as [AL, BL] | [AN, BN];
+      return [fst, snd] as [AL, BL];
     },
     neutral: [a.neutral, b.neutral],
   };
@@ -29,7 +29,7 @@ export function combineMonoid<V, AL, AN, BL, BN>(
 
 //
 
-export const testMonoid: Monoid<string, string, string> = {
+export const testMonoid: LiftingMonoid<string, string> = {
   lift: (a: string) => a,
   combine: (a: string, b: string) => {
     const fst = a === "0" ? "" : a;
@@ -40,13 +40,13 @@ export const testMonoid: Monoid<string, string, string> = {
   neutral: "0",
 };
 
-export const sizeMonoid: Monoid<unknown, number, 0> = {
+export const sizeMonoid: LiftingMonoid<unknown, number> = {
   lift: (_a: unknown) => 1,
   combine: (a: number, b: number) => a + b,
   neutral: 0,
 };
 
-export const xorMonoid: Monoid<Uint8Array, Uint8Array, Uint8Array> = {
+export const xorMonoid: LiftingMonoid<Uint8Array, Uint8Array> = {
   lift: (v: Uint8Array) => {
     const hash = xxHash32(v).toString(16);
     return new TextEncoder().encode(hash);

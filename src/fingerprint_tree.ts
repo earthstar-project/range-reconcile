@@ -3,28 +3,27 @@ import {
   Direction,
   RedBlackNode,
 } from "https://deno.land/std@0.158.0/collections/red_black_node.ts";
-import { combineMonoid, Monoid, sizeMonoid } from "./monoid.ts";
+import { combineMonoid, LiftingMonoid, sizeMonoid } from "./lifting_monoid.ts";
 
 const debug = false;
 
 export class FingerprintNode<
   ValueType = string,
   LiftType = string,
-  NeutralType = string,
 > extends RedBlackNode<ValueType> {
-  declare parent: FingerprintNode<ValueType, LiftType, NeutralType> | null;
-  declare left: FingerprintNode<ValueType, LiftType, NeutralType> | null;
-  declare right: FingerprintNode<ValueType, LiftType, NeutralType> | null;
+  declare parent: FingerprintNode<ValueType, LiftType> | null;
+  declare left: FingerprintNode<ValueType, LiftType> | null;
+  declare right: FingerprintNode<ValueType, LiftType> | null;
 
-  fingerprint: LiftType | NeutralType;
+  fingerprint: LiftType;
   liftedValue: LiftType;
 
-  private monoid: Monoid<ValueType, LiftType, NeutralType>;
+  private monoid: LiftingMonoid<ValueType, LiftType>;
 
   constructor(
-    parent: FingerprintNode<ValueType, LiftType, NeutralType> | null,
+    parent: FingerprintNode<ValueType, LiftType> | null,
     value: ValueType,
-    monoid: Monoid<ValueType, LiftType, NeutralType>,
+    monoid: LiftingMonoid<ValueType, LiftType>,
   ) {
     super(parent, value);
 
@@ -68,19 +67,18 @@ export class FingerprintNode<
   }
 }
 
-type NodeType<V, L, N> = FingerprintNode<V, [L, [number, V[]]], [N, [0, []]]>;
+type NodeType<V, L> = FingerprintNode<V, [L, [number, V[]]]>;
 type CombinedLabel<V, L> = [L, [number, V[]]];
-type CombinedNeutral<N> = [N, [0, []]];
 
-export class FingerprintTree<V, L, N> extends RedBlackTree<V> {
+export class FingerprintTree<V, L> extends RedBlackTree<V> {
   declare protected root:
-    | NodeType<V, L, N>
+    | NodeType<V, L>
     | null;
 
-  monoid: Monoid<V, [L, [number, V[]]], [N, [0, []]]>;
+  monoid: LiftingMonoid<V, [L, [number, V[]]]>;
 
   constructor(
-    monoid: Monoid<V, L, N>,
+    monoid: LiftingMonoid<V, L>,
     compare?: (a: V, b: V) => number,
   ) {
     super(compare);
@@ -97,8 +95,19 @@ export class FingerprintTree<V, L, N> extends RedBlackTree<V> {
     );
   }
 
+  getFullRange(): { x: V; y: V } {
+    if (!this.root) {
+      throw new Error("Can't get a range from a tree with no items");
+    }
+
+    return {
+      x: this.root.findMinNode().value,
+      y: this.root.findMaxNode().value,
+    };
+  }
+
   rotateNode(
-    node: NodeType<V, L, N>,
+    node: NodeType<V, L>,
     direction: Direction,
   ) {
     const replacementDirection: Direction = direction === "left"
@@ -112,7 +121,7 @@ export class FingerprintTree<V, L, N> extends RedBlackTree<V> {
 
     if (debug) console.group("Rotating", direction);
 
-    const replacement: NodeType<V, L, N> = node[replacementDirection]!;
+    const replacement: NodeType<V, L> = node[replacementDirection]!;
     node[replacementDirection] = replacement[direction] ?? null;
 
     // if the replacement has a node in the rotation direction
@@ -148,15 +157,15 @@ export class FingerprintTree<V, L, N> extends RedBlackTree<V> {
   }
 
   removeFixup(
-    parent: NodeType<V, L, N> | null,
-    current: NodeType<V, L, N> | null,
+    parent: NodeType<V, L> | null,
+    current: NodeType<V, L> | null,
   ) {
     while (parent && !current?.red) {
       const direction: Direction = parent.left === current ? "left" : "right";
       const siblingDirection: Direction = direction === "right"
         ? "left"
         : "right";
-      let sibling: NodeType<V, L, N> | null = parent[siblingDirection];
+      let sibling: NodeType<V, L> | null = parent[siblingDirection];
 
       if (sibling?.red) {
         sibling.red = false;
@@ -190,13 +199,13 @@ export class FingerprintTree<V, L, N> extends RedBlackTree<V> {
 
   private insertFingerprintNode(
     value: V,
-  ): NodeType<V, L, N> | null {
+  ): NodeType<V, L> | null {
     if (!this.root) {
       this.root = new FingerprintNode(null, value, this.monoid);
       this._size++;
       return this.root;
     } else {
-      let node: NodeType<V, L, N> = this.root;
+      let node: NodeType<V, L> = this.root;
       while (true) {
         const order: number = this.compare(value, node.value);
 
@@ -224,7 +233,7 @@ export class FingerprintTree<V, L, N> extends RedBlackTree<V> {
 
     if (node) {
       while (node.parent?.red) {
-        let parent: NodeType<V, L, N> = node
+        let parent: NodeType<V, L> = node
           .parent!;
         const parentDirection: Direction = parent.directionFromParent()!;
         const uncleDirection: Direction = parentDirection === "right"
@@ -233,7 +242,7 @@ export class FingerprintTree<V, L, N> extends RedBlackTree<V> {
 
         // The uncle is the sibling on the same side of the parent's parent.
         const uncle:
-          | NodeType<V, L, N>
+          | NodeType<V, L>
           | null = parent.parent![uncleDirection] ??
             null;
 
@@ -270,7 +279,7 @@ export class FingerprintTree<V, L, N> extends RedBlackTree<V> {
   override remove(value: V): boolean {
     const node = this.removeNode(
       value,
-    ) as (NodeType<V, L, N> | null);
+    ) as (NodeType<V, L> | null);
 
     if (node && !node.red) {
       this.removeFixup(node.parent, node.left ?? node.right);
@@ -283,11 +292,11 @@ export class FingerprintTree<V, L, N> extends RedBlackTree<V> {
     return !!node;
   }
 
-  getFingerprint(x: V, y: V, nextTree?: NodeType<V, L, N>): {
-    fingerprint: L | N;
+  getFingerprint(x: V, y: V, nextTree?: NodeType<V, L>): {
+    fingerprint: L;
     size: number;
     items: V[];
-    nextTree: NodeType<V, L, N> | null;
+    nextTree: NodeType<V, L> | null;
   } {
     if (this.root === null) {
       return {
@@ -300,7 +309,7 @@ export class FingerprintTree<V, L, N> extends RedBlackTree<V> {
 
     const nodeToPass = nextTree || this.findGteNode(
       x,
-    ) as NodeType<V, L, N>;
+    ) as NodeType<V, L>;
 
     const order = this.compare(x, y);
 
@@ -336,7 +345,7 @@ export class FingerprintTree<V, L, N> extends RedBlackTree<V> {
 
       const label = this.monoid.combine(
         label0,
-        this.compare(maxNode.value, x) > 0
+        this.compare(maxNode.value, x) >= 0
           ? this.monoid.lift(maxNode.value)
           : this.monoid.neutral,
       );
@@ -351,7 +360,7 @@ export class FingerprintTree<V, L, N> extends RedBlackTree<V> {
       }
 
       const { label: label2, nextTree } = this.aggregateUntil(
-        minNode as NodeType<V, L, N>,
+        minNode as NodeType<V, L>,
         minNode.value,
         y,
       );
@@ -369,8 +378,8 @@ export class FingerprintTree<V, L, N> extends RedBlackTree<V> {
 
   private findGteNode(
     value: V,
-  ): NodeType<V, L, N> | null {
-    let node: NodeType<V, L, N> | null = this.root;
+  ): NodeType<V, L> | null {
+    let node: NodeType<V, L> | null = this.root;
     while (node) {
       const order: number = this.compare(value, node.value);
       if (order === 0) break;
@@ -386,12 +395,12 @@ export class FingerprintTree<V, L, N> extends RedBlackTree<V> {
   }
 
   private aggregateUntil(
-    node: NodeType<V, L, N>,
+    node: NodeType<V, L>,
     x: V,
     y: V,
   ): {
-    label: CombinedLabel<V, L> | CombinedNeutral<N>;
-    nextTree: NodeType<V, L, N> | null;
+    label: CombinedLabel<V, L>;
+    nextTree: NodeType<V, L> | null;
   } {
     const { label, nextTree } = this.aggregateUp(node, x, y);
 
@@ -407,14 +416,14 @@ export class FingerprintTree<V, L, N> extends RedBlackTree<V> {
   }
 
   private aggregateUp(
-    node: NodeType<V, L, N>,
+    node: NodeType<V, L>,
     x: V,
     y: V,
   ): {
-    label: CombinedLabel<V, L> | CombinedNeutral<N>;
-    nextTree: NodeType<V, L, N> | null;
+    label: CombinedLabel<V, L>;
+    nextTree: NodeType<V, L> | null;
   } {
-    let acc: CombinedLabel<V, L> | CombinedNeutral<N> = this.monoid.neutral;
+    let acc: CombinedLabel<V, L> = this.monoid.neutral;
     let tree = node;
 
     while (tree.findMaxNode().value < y) {
@@ -439,12 +448,12 @@ export class FingerprintTree<V, L, N> extends RedBlackTree<V> {
   }
 
   private aggregateDown(
-    node: NodeType<V, L, N> | null,
+    node: NodeType<V, L> | null,
     y: V,
-    acc: CombinedLabel<V, L> | CombinedNeutral<N>,
+    acc: CombinedLabel<V, L>,
   ): {
-    label: CombinedLabel<V, L> | CombinedNeutral<N>;
-    nextTree: NodeType<V, L, N> | null;
+    label: CombinedLabel<V, L>;
+    nextTree: NodeType<V, L> | null;
   } {
     let tree = node;
     let acc2 = acc;

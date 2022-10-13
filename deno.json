@@ -1,6 +1,7 @@
 {
   "tasks": {
     "test": "deno test src",
-    "bench": "deno bench --unstable src"
+    "bench": "deno bench --unstable src",
+    "msg_run": "deno run scripts/msg_broker.ts"
   }
 }

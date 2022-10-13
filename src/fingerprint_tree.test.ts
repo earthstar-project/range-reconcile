@@ -1,5 +1,5 @@
 import { assertEquals } from "https://deno.land/std@0.158.0/testing/asserts.ts";
-import { testMonoid } from "./monoid.ts";
+import { testMonoid } from "./lifting_monoid.ts";
 import { FingerprintTree } from "./fingerprint_tree.ts";
 
 type RangeVector = [[string, string], string, number, string[]];
@@ -7,6 +7,7 @@ type RangeVector = [[string, string], string, number, string[]];
 const rangeVectors: RangeVector[] = [
   [["a", "a"], "abcdefg", 7, ["a", "b", "c", "d", "e", "f", "g"]],
   [["a", "d"], "abc", 3, ["a", "b", "c"]],
+  [["g", "a"], "g", 1, ["g"]],
   [["c", "a"], "cdefg", 5, ["c", "d", "e", "f", "g"]],
   [["c", "g"], "cdef", 4, ["c", "d", "e", "f"]],
   [["e", "a"], "efg", 3, ["e", "f", "g"]],

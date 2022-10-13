@@ -1,5 +1,5 @@
 import { FingerprintTree } from "./fingerprint_tree.ts";
-import { xorMonoid } from "./monoid.ts";
+import { testMonoid, xorMonoid } from "./lifting_monoid.ts";
 
 const alphaElements = [
   "a",
@@ -46,8 +46,8 @@ function multiplyElements(elements: string[], by: number): string[] {
 
 function makeTree(
   elements: string[],
-): FingerprintTree<string, Uint8Array, Uint8Array> {
-  const tree = new FingerprintTree(xorMonoid);
+): FingerprintTree<string, string> {
+  const tree = new FingerprintTree(testMonoid);
 
   for (const element of elements) {
     tree.insert(element);

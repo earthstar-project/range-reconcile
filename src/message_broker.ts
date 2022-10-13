@@ -1,37 +1,7 @@
 import { FingerprintTree } from "./fingerprint_tree.ts";
+import { MessageBrokerConfig } from "./message_broker_config.ts";
 
-type BrokerConfig<EncodedType, ValueType, LiftType, NeutralType> = {
-  encode: {
-    lowerBound: (value: ValueType) => EncodedType;
-    payload: (
-      value: ValueType,
-      end?: { canRespond: boolean; upperBound: ValueType },
-    ) => EncodedType;
-    done: (upperBound: ValueType) => EncodedType;
-    fingerprint: (
-      fingerprint: LiftType | NeutralType,
-      upperBound: ValueType,
-    ) => EncodedType;
-    terminal: () => EncodedType;
-  };
-  decode: {
-    lowerBound: (message: EncodedType) => ValueType;
-    payload: (
-      message: EncodedType,
-    ) => {
-      value: ValueType;
-      end?: { canRespond: boolean; upperBound: ValueType };
-    } | false;
-    /** Returns the upper bound of the message */
-    done: (message: EncodedType) => ValueType | false;
-    fingerprint: (
-      message: EncodedType,
-    ) => { fingerprint: LiftType | NeutralType; upperBound: ValueType } | false;
-    terminal: (e: EncodedType) => boolean;
-  };
-};
-
-type DecodeStageResult<V, L, N> =
+type DecodeStageResult<V, L> =
   | {
     type: "lowerBound";
     value: V;
@@ -45,14 +15,14 @@ type DecodeStageResult<V, L, N> =
   | {
     lowerBound: V;
     type: "fingerprint";
-    fingerprint: L | N;
+    fingerprint: L;
     upperBound: V;
   }
   | { lowerBound: V; type: "done"; upperBound: V }
   | { type: "terminal" };
 
-type CollateStageResult<V, L, N> =
-  | Exclude<DecodeStageResult<V, L, N>, {
+type CollateStageResult<V, L> =
+  | Exclude<DecodeStageResult<V, L>, {
     lowerBound: V;
     type: "payload";
     payload: V;
@@ -65,7 +35,7 @@ type CollateStageResult<V, L, N> =
     end?: { canRespond: boolean; upperBound: V };
   };
 
-type ProcessStageResult<V, L, N> =
+type ProcessStageResult<V, L> =
   | {
     type: "lowerBound";
     value: V;
@@ -77,44 +47,101 @@ type ProcessStageResult<V, L, N> =
   }
   | {
     type: "fingerprint";
-    fingerprint: L | N;
+    fingerprint: L;
     upperBound: V;
   }
   | { type: "done"; upperBound: V }
   | { type: "terminal" };
 
-export class Broker<E, V, L, N> {
+export class MessageBroker<E, V, L> {
   private passthrough = new TransformStream<E, E>({
     transform(message, controller) {
       controller.enqueue(message);
     },
   });
 
-  private passthrough2 = new TransformStream<E, E>({
-    transform(message, controller) {
-      controller.enqueue(message);
-    },
-  });
-
   writable = this.passthrough.writable;
-  readable = this.passthrough2.readable;
+  readable: ReadableStream<E>;
 
   constructor(
-    tree: FingerprintTree<V, L, N>,
-    config: BrokerConfig<E, V, L, N>,
+    tree: FingerprintTree<V, L>,
+    config: MessageBrokerConfig<E, V, L>,
+    initiateExchange = false,
   ) {
+    const passthrough2 = new TransformStream<E, E>({
+      transform(message, controller) {
+        controller.enqueue(message);
+      },
+      start(controller) {
+        if (initiateExchange) {
+          if (tree.size === 0) {
+            const lowerEncoded = config.encode.lowerBound(null);
+            const fingerprintEncoded = config.encode.fingerprint(
+              tree.monoid.neutral[0],
+              null,
+            );
+            const terminalEncoded = config.encode.terminal();
+
+            controller.enqueue(lowerEncoded);
+            controller.enqueue(fingerprintEncoded);
+            controller.enqueue(terminalEncoded);
+
+            return;
+          }
+
+          // TODO: split fingerprint in two (make this configurable with b)
+          const fullRange = tree.getFullRange();
+
+          const lowerEncoded = config.encode.lowerBound(fullRange.x);
+          controller.enqueue(lowerEncoded);
+
+          const { items, size, fingerprint } = tree.getFingerprint(
+            fullRange.x,
+            fullRange.x,
+          );
+
+          const b = 1;
+
+          const chunkSize = Math.round(size / b);
+
+          // if it's > k then divide ranges (could be divided into 2 or more depending on number of items, define this with b.)
+          for (let i = 0; i < size; i += chunkSize) {
+            // calculate fingerprint with
+            const rangeEnd = items[i + chunkSize + 1] || fullRange.x;
+
+            const fingerprintEncoded = config.encode.fingerprint(
+              fingerprint,
+              rangeEnd,
+            );
+
+            controller.enqueue(fingerprintEncoded);
+          }
+
+          const terminalEncoded = config.encode.terminal();
+          controller.enqueue(terminalEncoded);
+        }
+      },
+    });
+
+    this.readable = passthrough2.readable;
+
     let lowerBoundDecode: V | null = null;
 
     // Build a pipeline which incoming messages going in and response messages coming out.
     // First step of pipeline is decoding. What kind of message is it?
 
-    const decodeStage = new TransformStream<E, DecodeStageResult<V, L, N>>(
+    const decodeStage = new TransformStream<E, DecodeStageResult<V, L>>(
       {
         transform(message, controller) {
           if (lowerBoundDecode === null) {
             lowerBoundDecode = config.decode.lowerBound(message);
 
-            controller.enqueue({ type: "lowerBound", value: lowerBoundDecode });
+            controller.enqueue({
+              "type": "lowerBound",
+              value: lowerBoundDecode,
+            });
+
+            // Stop processing of this message here, we no longer need it.
             return;
           }
 
@@ -157,7 +184,7 @@ export class Broker<E, V, L, N> {
               "type": "payload",
               lowerBound: lowerBoundDecode,
               "payload": payloadMsg.value,
-              ...(payloadMsg.end),
+              ...(payloadMsg.end ? { end: payloadMsg.end } : {}),
             });
 
             if (payloadMsg.end) {
@@ -178,8 +205,8 @@ export class Broker<E, V, L, N> {
     } | null = null;
 
     const collatePayloadsStage = new TransformStream<
-      DecodeStageResult<V, L, N>,
-      CollateStageResult<V, L, N>
+      DecodeStageResult<V, L>,
+      CollateStageResult<V, L>
     >({
       transform(decoded, controller) {
         switch (decoded.type) {
@@ -216,8 +243,8 @@ export class Broker<E, V, L, N> {
     // In the third stage of the pipeline we formulate our response to these messages, as well as perform tree insertions.
 
     const processStage = new TransformStream<
-      CollateStageResult<V, L, N>,
-      ProcessStageResult<V, L, N>
+      CollateStageResult<V, L>,
+      ProcessStageResult<V, L>
     >({
       transform(result, controller) {
         switch (result.type) {
@@ -272,6 +299,7 @@ export class Broker<E, V, L, N> {
             // k must be at least 1
             // TODO: make k configurable.
             const k = 1;
+
             if (size <= k) {
               for (let i = 0; i < items.length; i++) {
                 controller.enqueue({
@@ -288,23 +316,44 @@ export class Broker<E, V, L, N> {
             } else {
               // TODO: make b configurable
               const b = 2;
+
+              const chunkSize = Math.round(items.length / b);
+
               // if it's > k then divide ranges (could be divided into 2 or more depending on number of items, define this with b.)
-              for (let i = 0; i < items.length; i += b) {
+              for (let i = 0; i < items.length; i += chunkSize) {
                 // calculate fingerprint with
                 const rangeBeginning = items[i];
-                const rangeEnd = items[i + b + 1] || result.upperBound;
+                const rangeEnd = items[i + chunkSize] || result.upperBound;
 
-                const { fingerprint } = tree.getFingerprint(
-                  rangeBeginning,
-                  rangeEnd,
-                );
+                const { fingerprint, size, items: items2 } = tree
+                  .getFingerprint(
+                    rangeBeginning,
+                    rangeEnd,
+                  );
 
-                controller.enqueue({
-                  type: "fingerprint",
-                  fingerprint: fingerprint,
+                if (size <= k) {
+                  for (let i = 0; i < size; i++) {
+                    controller.enqueue({
+                      type: "payload",
 
-                  upperBound: rangeEnd,
-                });
+                      payload: items2[i],
+                      ...(i === size - 1
+                        ? {
+                          end: {
+                            upperBound: result.upperBound,
+                            canRespond: true,
+                          },
+                        }
+                        : {}),
+                    });
+                  }
+                } else {
+                  controller.enqueue({
+                    type: "fingerprint",
+                    fingerprint: fingerprint,
+                    upperBound: rangeEnd,
+                  });
+                }
               }
             }
 
@@ -336,9 +385,15 @@ export class Broker<E, V, L, N> {
                     : {}),
                 });
               }
+            } else if (result.end?.upperBound) {
+              controller.enqueue({
+                type: "done",
+                upperBound: result.end.upperBound,
+              });
             }
 
             // add all items in the payload to the tree
+
             for (const payloadItem of result.payload) {
               tree.insert(payloadItem);
             }
@@ -353,15 +408,14 @@ export class Broker<E, V, L, N> {
     let lastDoneUpperBound: V | null = null;
 
     const consolidateAdjacentDoneStage = new TransformStream<
-      ProcessStageResult<V, L, N>,
-      ProcessStageResult<V, L, N>
+      ProcessStageResult<V, L>,
+      ProcessStageResult<V, L>
     >({
       transform(result, controller) {
         switch (result.type) {
           case "done": {
-            if (lastDoneUpperBound === null) {
-              lastDoneUpperBound = result.upperBound;
-            }
+            lastDoneUpperBound = result.upperBound;
+
             break;
           }
 
@@ -380,9 +434,45 @@ export class Broker<E, V, L, N> {
       },
     });
 
-    // In the fifth stage af the pipeline we encode the messages.
+    // In the fifth stage we check if all messages are pretty much done.
 
-    const encodeStage = new TransformStream<ProcessStageResult<V, L, N>, E>({
+    let isDoneSoFar = true;
+    let isReallyDone = false;
+
+    const isDoneStage = new TransformStream<
+      DecodeStageResult<V, L>,
+      DecodeStageResult<V, L>
+    >({
+      transform(message, controller) {
+        if (!isReallyDone) {
+          controller.enqueue(message);
+        }
+
+        switch (message.type) {
+          case "lowerBound":
+            isDoneSoFar = true;
+            break;
+          case "fingerprint":
+            isDoneSoFar = false;
+            break;
+          case "payload":
+            if (message.end?.canRespond === true) {
+              isDoneSoFar = false;
+            }
+            break;
+          case "terminal":
+            if (isDoneSoFar) {
+              isReallyDone = true;
+            } else {
+              isDoneSoFar = true;
+            }
+        }
+      },
+    });
+
+    // In the sixth stage af the pipeline we encode the messages.
+
+    const encodeStage = new TransformStream<ProcessStageResult<V, L>, E>({
       transform(message, controller) {
         let encoded: E;
 
@@ -418,9 +508,16 @@ export class Broker<E, V, L, N> {
     });
 
     // and then squirt 'em out
-    this.passthrough.readable.pipeThrough(decodeStage).pipeThrough(
-      collatePayloadsStage,
-    ).pipeThrough(processStage).pipeThrough(consolidateAdjacentDoneStage)
-      .pipeThrough(encodeStage).pipeThrough(this.passthrough2);
+
+    this.passthrough.readable
+      .pipeThrough(decodeStage)
+      .pipeThrough(isDoneStage)
+      .pipeThrough(collatePayloadsStage)
+      .pipeThrough(processStage)
+      .pipeThrough(consolidateAdjacentDoneStage)
+      .pipeThrough(encodeStage)
+      .pipeThrough(passthrough2);
   }
+
+  // NEXT: how do we poke a broker to output the initialising series of messages?
 }
