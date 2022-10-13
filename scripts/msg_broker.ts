@@ -7,7 +7,7 @@ import { testConfig } from "../src/message_broker_config.ts";
 
 const treeA = new FingerprintTree(testMonoid);
 
-const setA = ["ape", "bee", "cat", "doe", "eel", "gnu", "hog"];
+const setA = ["bee", "cat", "doe", "eel", "fox", "hog"];
 
 for (const item of setA) {
   treeA.insert(item);
@@ -29,7 +29,7 @@ const printerA = new TransformStream<string>({
 
 const treeB = new FingerprintTree(testMonoid);
 
-const setB = ["ape", "bee", "cat", "doe", "eel", "fox", "gnu", "hog"];
+const setB = ["ape", "eel", "fox", "gnu"];
 
 for (const item of setB) {
   treeB.insert(item);
@@ -55,20 +55,10 @@ console.group("%c B has:", "color: blue");
 console.log(`%c ${Array.from(treeB.lnrValues())}`, "color: blue");
 console.groupEnd();
 
-brokerB.readable.pipeThrough(printerB).pipeTo(brokerA.writable).catch(
-  () => {
-    console.log("A finished");
-  },
-);
-brokerA.readable.pipeThrough(printerA).pipeTo(brokerB.writable).catch(
-  () => {
-    console.log("B finished");
-  },
-);
+brokerB.readable.pipeThrough(printerB).pipeTo(brokerA.writable);
+brokerA.readable.pipeThrough(printerA).pipeTo(brokerB.writable);
 
-await new Promise((res) => {
-  setTimeout(res, 10);
-});
+await Promise.all([brokerA.isDone(), brokerB.isDone()]);
 
 console.group("%c A has:", "color: red");
 console.log(`%c ${Array.from(treeA.lnrValues())}`, "color: red");

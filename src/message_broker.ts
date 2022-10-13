@@ -1,4 +1,5 @@
-import { FingerprintTree } from "./fingerprint_tree.ts";
+import { DeferredTee } from "./deferred_tee.ts";
+import { FingerprintTree, NodeType } from "./fingerprint_tree.ts";
 import { MessageBrokerConfig } from "./message_broker_config.ts";
 
 type DecodeStageResult<V, L> =
@@ -62,6 +63,8 @@ export class MessageBroker<E, V, L> {
 
   writable = this.passthrough.writable;
   readable: ReadableStream<E>;
+
+  private isDoneTee = new DeferredTee();
 
   constructor(
     tree: FingerprintTree<V, L>,
@@ -241,6 +244,7 @@ export class MessageBroker<E, V, L> {
     });
 
     // In the third stage of the pipeline we formulate our response to these messages, as well as perform tree insertions.
+    let treeToUse: NodeType<V, L> | undefined = undefined;
 
     const processStage = new TransformStream<
       CollateStageResult<V, L>,
@@ -251,6 +255,7 @@ export class MessageBroker<E, V, L> {
           case "lowerBound":
           case "terminal":
           case "done":
+            // treeToUse = undefined;
             controller.enqueue(result);
             break;
 
@@ -258,10 +263,13 @@ export class MessageBroker<E, V, L> {
             // If fingeprint is neutral element
             if (tree.monoid.neutral[0] === result.fingerprint) {
               // Send back all items.
-              const { items } = tree.getFingerprint(
+              const { items, nextTree } = tree.getFingerprint(
                 result.lowerBound,
                 result.upperBound,
+                treeToUse,
               );
+
+              treeToUse = nextTree || undefined;
 
               for (let i = 0; i < items.length; i++) {
                 controller.enqueue({
@@ -280,9 +288,10 @@ export class MessageBroker<E, V, L> {
 
             // Create own fingerprint of this range.
             // TODO: Use previous nextTree to make this more efficient.
-            const { fingerprint, size, items } = tree.getFingerprint(
+            const { fingerprint, size, items, nextTree } = tree.getFingerprint(
               result.lowerBound,
               result.upperBound,
+              treeToUse,
             );
 
             // If it matches, we are DONE here. Yay!
@@ -319,17 +328,22 @@ export class MessageBroker<E, V, L> {
 
               const chunkSize = Math.round(items.length / b);
 
+              let treeToUseChunked = treeToUse;
+
               // if it's > k then divide ranges (could be divided into 2 or more depending on number of items, define this with b.)
               for (let i = 0; i < items.length; i += chunkSize) {
                 // calculate fingerprint with
                 const rangeBeginning = items[i];
                 const rangeEnd = items[i + chunkSize] || result.upperBound;
 
-                const { fingerprint, size, items: items2 } = tree
+                const { fingerprint, size, items: items2, nextTree } = tree
                   .getFingerprint(
                     rangeBeginning,
                     rangeEnd,
+                    treeToUseChunked,
                   );
+
+                treeToUseChunked = nextTree || undefined;
 
                 if (size <= k) {
                   for (let i = 0; i < size; i++) {
@@ -355,13 +369,14 @@ export class MessageBroker<E, V, L> {
                   });
                 }
               }
+
+              treeToUse = nextTree || undefined;
             }
 
             break;
           }
 
           case "payload": {
-            // check whether this payload can be responded to
             if (result.end?.canRespond) {
               // Send them back with canRespond: false.
 
@@ -373,7 +388,6 @@ export class MessageBroker<E, V, L> {
               for (let i = 0; i < items.length; i++) {
                 controller.enqueue({
                   type: "payload",
-
                   payload: items[i],
                   ...(i === items.length - 1
                     ? {
@@ -393,7 +407,7 @@ export class MessageBroker<E, V, L> {
             }
 
             // add all items in the payload to the tree
-
+            // check whether this payload can be responded to
             for (const payloadItem of result.payload) {
               tree.insert(payloadItem);
             }
@@ -438,6 +452,7 @@ export class MessageBroker<E, V, L> {
 
     let isDoneSoFar = true;
     let isReallyDone = false;
+    const isDoneTee = this.isDoneTee;
 
     const isDoneStage = new TransformStream<
       DecodeStageResult<V, L>,
@@ -463,6 +478,7 @@ export class MessageBroker<E, V, L> {
           case "terminal":
             if (isDoneSoFar) {
               isReallyDone = true;
+              isDoneTee.resolve();
             } else {
               isDoneSoFar = true;
             }
@@ -511,13 +527,15 @@ export class MessageBroker<E, V, L> {
 
     this.passthrough.readable
       .pipeThrough(decodeStage)
-      .pipeThrough(isDoneStage)
       .pipeThrough(collatePayloadsStage)
       .pipeThrough(processStage)
       .pipeThrough(consolidateAdjacentDoneStage)
+      .pipeThrough(isDoneStage)
       .pipeThrough(encodeStage)
-      .pipeThrough(passthrough2);
+      .pipeTo(passthrough2.writable);
   }
 
-  // NEXT: how do we poke a broker to output the initialising series of messages?
+  isDone() {
+    return this.isDoneTee.tee();
+  }
 }

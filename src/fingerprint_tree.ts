@@ -67,7 +67,7 @@ export class FingerprintNode<
   }
 }
 
-type NodeType<V, L> = FingerprintNode<V, [L, [number, V[]]]>;
+export type NodeType<V, L> = FingerprintNode<V, [L, [number, V[]]]>;
 type CombinedLabel<V, L> = [L, [number, V[]]];
 
 export class FingerprintTree<V, L> extends RedBlackTree<V> {
