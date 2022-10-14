@@ -1,5 +1,5 @@
 import { DeferredTee } from "./deferred_tee.ts";
-import { FingerprintTree, NodeType } from "./fingerprint_tree.ts";
+import { FingerprintTree } from "./fingerprint_tree.ts";
 import { MessageBrokerConfig } from "./message_broker_config.ts";
 
 type DecodeStageResult<V, L> =
@@ -12,6 +12,11 @@ type DecodeStageResult<V, L> =
     type: "payload";
     payload: V;
     end?: { canRespond: boolean; upperBound: V };
+  }
+  | {
+    lowerBound: V;
+    type: "emptyPayload";
+    upperBound: V;
   }
   | {
     lowerBound: V;
@@ -33,7 +38,7 @@ type CollateStageResult<V, L> =
     lowerBound: V;
     type: "payload";
     payload: V[];
-    end?: { canRespond: boolean; upperBound: V };
+    end: { canRespond: boolean; upperBound: V };
   };
 
 type ProcessStageResult<V, L> =
@@ -45,6 +50,10 @@ type ProcessStageResult<V, L> =
     type: "payload";
     payload: V;
     end?: { canRespond: boolean; upperBound: V };
+  }
+  | {
+    type: "emptyPayload";
+    upperBound: V;
   }
   | {
     type: "fingerprint";
@@ -103,32 +112,57 @@ export class MessageBroker<E, V, L> {
             fullRange.x,
           );
 
-          const b = 1;
+          const k = 1;
 
-          const chunkSize = Math.round(size / b);
+          if (size <= k) {
+            // If we have zero items in this range,  send all items we have from here.
+            if (size === 0) {
+              const emptyEncoded = config.encode.emptyPayload(fullRange.x);
+              controller.enqueue(emptyEncoded);
+            }
 
-          // if it's > k then divide ranges (could be divided into 2 or more depending on number of items, define this with b.)
-          for (let i = 0; i < size; i += chunkSize) {
-            // calculate fingerprint with
-            const rangeEnd = items[i + chunkSize + 1] || fullRange.x;
+            // Otherwise, send a payload for each item here.
+            for (let i = 0; i < items.length; i++) {
+              const payloadEncoded = config.encode.payload(
+                items[i],
+                i === items.length - 1
+                  ? {
+                    upperBound: fullRange.x,
+                    canRespond: true,
+                  }
+                  : undefined,
+              );
 
-            const fingerprintEncoded = config.encode.fingerprint(
-              fingerprint,
-              rangeEnd,
-            );
+              controller.enqueue(payloadEncoded);
+            }
+          } else {
+            const b = 1;
 
-            controller.enqueue(fingerprintEncoded);
+            const chunkSize = Math.ceil(size / b);
+
+            // if it's > k then divide ranges (could be divided into 2 or more depending on number of items, define this with b.)
+            for (let i = 0; i < size; i += chunkSize) {
+              // calculate fingerprint with
+              const rangeEnd = items[i + chunkSize + 1] || fullRange.x;
+
+              const fingerprintEncoded = config.encode.fingerprint(
+                fingerprint,
+                rangeEnd,
+              );
+
+              controller.enqueue(fingerprintEncoded);
+            }
           }
 
           const terminalEncoded = config.encode.terminal();
           controller.enqueue(terminalEncoded);
         }
       },
-    });
+    }, new CountQueuingStrategy({ highWaterMark: 100000 }));
 
     this.readable = passthrough2.readable;
 
-    let lowerBoundDecode: V | null = null;
+    let lowerBoundDecode: V;
 
     // Build a pipeline which incoming messages going in and response messages coming out.
     // First step of pipeline is decoding. What kind of message is it?
@@ -136,15 +170,17 @@ export class MessageBroker<E, V, L> {
     const decodeStage = new TransformStream<E, DecodeStageResult<V, L>>(
       {
         transform(message, controller) {
-          if (lowerBoundDecode === null) {
-            lowerBoundDecode = config.decode.lowerBound(message);
+          const lowerBoundMsg = config.decode.lowerBound(message);
 
-            controller.enqueue({
-              "type": "lowerBound",
-              value: lowerBoundDecode,
-            });
+          if (lowerBoundMsg) {
+            lowerBoundDecode = lowerBoundMsg;
 
             // Stop processing of this message here, we no longer need it.
+            controller.enqueue({
+              "type": "lowerBound",
+              value: lowerBoundMsg,
+            });
+
             return;
           }
 
@@ -193,6 +229,20 @@ export class MessageBroker<E, V, L> {
             if (payloadMsg.end) {
               lowerBoundDecode = payloadMsg.end.upperBound;
             }
+            return;
+          }
+
+          const emptyPayloadMsg = config.decode.emptyPayload(message);
+
+          if (emptyPayloadMsg) {
+            controller.enqueue({
+              "type": "emptyPayload",
+              lowerBound: lowerBoundDecode,
+              upperBound: emptyPayloadMsg,
+            });
+
+            lowerBoundDecode = emptyPayloadMsg;
+            return;
           }
         },
       },
@@ -244,7 +294,8 @@ export class MessageBroker<E, V, L> {
     });
 
     // In the third stage of the pipeline we formulate our response to these messages, as well as perform tree insertions.
-    let treeToUse: NodeType<V, L> | undefined = undefined;
+    // DO NOTE USE THIS UNTIL TESTS PASS AGAIN
+    //let treeToUse: NodeType<V, L> | undefined = undefined;
 
     const processStage = new TransformStream<
       CollateStageResult<V, L>,
@@ -255,23 +306,20 @@ export class MessageBroker<E, V, L> {
           case "lowerBound":
           case "terminal":
           case "done":
-            // treeToUse = undefined;
+            //treeToUse = undefined;
             controller.enqueue(result);
             break;
 
           case "fingerprint": {
-            // If fingeprint is neutral element
+            /*
+            // If fingeprint is neutral element send back all items.
             if (tree.monoid.neutral[0] === result.fingerprint) {
-              // Send back all items.
-              const { items, nextTree } = tree.getFingerprint(
+              const { items, size } = tree.getFingerprint(
                 result.lowerBound,
                 result.upperBound,
-                treeToUse,
               );
 
-              treeToUse = nextTree || undefined;
-
-              for (let i = 0; i < items.length; i++) {
+              for (let i = 0; i < size; i++) {
                 controller.enqueue({
                   type: "payload",
                   payload: items[i],
@@ -285,16 +333,15 @@ export class MessageBroker<E, V, L> {
 
               break;
             }
+            */
 
-            // Create own fingerprint of this range.
-            // TODO: Use previous nextTree to make this more efficient.
-            const { fingerprint, size, items, nextTree } = tree.getFingerprint(
+            // If the fingerprint is not neutral, compare it with our own fingeprint of this range.
+            const { fingerprint, size, items } = tree.getFingerprint(
               result.lowerBound,
               result.upperBound,
-              treeToUse,
             );
 
-            // If it matches, we are DONE here. Yay!
+            // If the fingeprints match, we've reconciled this range. Hooray!
             if (fingerprint === result.fingerprint) {
               controller.enqueue({
                 "type": "done",
@@ -304,13 +351,21 @@ export class MessageBroker<E, V, L> {
             }
 
             // If it doesn't, check how many items are in the non-matching range...
-
-            // k must be at least 1
             // TODO: make k configurable.
             const k = 1;
-
             if (size <= k) {
-              for (let i = 0; i < items.length; i++) {
+              // If we have zero items in this range,
+
+              if (size === 0) {
+                controller.enqueue({
+                  type: "emptyPayload",
+                  upperBound: result.upperBound,
+                });
+                break;
+              }
+
+              // Otherwise, send a payload for each item here.
+              for (let i = 0; i < size; i++) {
                 controller.enqueue({
                   type: "payload",
 
@@ -323,29 +378,38 @@ export class MessageBroker<E, V, L> {
                 });
               }
             } else {
+              // If we have more than k items, we want to divide the range into b parts.
               // TODO: make b configurable
               const b = 2;
 
-              const chunkSize = Math.round(items.length / b);
+              const chunkSize = Math.ceil(size / b);
 
-              let treeToUseChunked = treeToUse;
+              // let treeToUseChunked = treeToUse;
 
-              // if it's > k then divide ranges (could be divided into 2 or more depending on number of items, define this with b.)
-              for (let i = 0; i < items.length; i += chunkSize) {
-                // calculate fingerprint with
+              for (let i = 0; i < size; i += chunkSize) {
+                // For each chunk...
+
                 const rangeBeginning = items[i];
                 const rangeEnd = items[i + chunkSize] || result.upperBound;
 
-                const { fingerprint, size, items: items2, nextTree } = tree
-                  .getFingerprint(
-                    rangeBeginning,
-                    rangeEnd,
-                    treeToUseChunked,
-                  );
+                const { items: items2, size } = tree.getFingerprint(
+                  rangeBeginning,
+                  rangeEnd,
+                );
 
-                treeToUseChunked = nextTree || undefined;
-
+                // If the slice size is less than k, then send each item as a payload.
                 if (size <= k) {
+                  //treeToUseChunked = undefined;
+
+                  /*
+                  if (size === 0) {
+                    controller.enqueue({
+                      type: "emptyPayload",
+                      upperBound: result.upperBound,
+                    });
+                  }
+                  */
+
                   for (let i = 0; i < size; i++) {
                     controller.enqueue({
                       type: "payload",
@@ -354,7 +418,7 @@ export class MessageBroker<E, V, L> {
                       ...(i === size - 1
                         ? {
                           end: {
-                            upperBound: result.upperBound,
+                            upperBound: rangeEnd,
                             canRespond: true,
                           },
                         }
@@ -362,6 +426,16 @@ export class MessageBroker<E, V, L> {
                     });
                   }
                 } else {
+                  // If it's bigger than k we compute the fingeprint for this chunk.
+                  const rangeBeginning = items[i];
+
+                  const { fingerprint } = tree
+                    .getFingerprint(
+                      rangeBeginning,
+                      rangeEnd,
+                      //treeToUseChunked,
+                    );
+
                   controller.enqueue({
                     type: "fingerprint",
                     fingerprint: fingerprint,
@@ -370,22 +444,29 @@ export class MessageBroker<E, V, L> {
                 }
               }
 
-              treeToUse = nextTree || undefined;
+              //treeToUse = nextTree || undefined;
             }
 
             break;
           }
 
           case "payload": {
-            if (result.end?.canRespond) {
-              // Send them back with canRespond: false.
-
-              const { items } = tree.getFingerprint(
+            // If we can respond, send back payloads for everything in this range we have.
+            if (result.end.canRespond) {
+              const { items, size } = tree.getFingerprint(
                 result.lowerBound,
                 result.end.upperBound,
+                //treeToUse,
               );
 
-              for (let i = 0; i < items.length; i++) {
+              if (size === 0) {
+                controller.enqueue({
+                  type: "emptyPayload",
+                  upperBound: result.end.upperBound,
+                });
+              }
+
+              for (let i = 0; i < size; i++) {
                 controller.enqueue({
                   type: "payload",
                   payload: items[i],
@@ -399,7 +480,9 @@ export class MessageBroker<E, V, L> {
                     : {}),
                 });
               }
-            } else if (result.end?.upperBound) {
+            } else {
+              // Or are we done here...
+
               controller.enqueue({
                 type: "done",
                 upperBound: result.end.upperBound,
@@ -410,6 +493,30 @@ export class MessageBroker<E, V, L> {
             // check whether this payload can be responded to
             for (const payloadItem of result.payload) {
               tree.insert(payloadItem);
+            }
+
+            break;
+          }
+
+          case "emptyPayload": {
+            const { items, size } = tree.getFingerprint(
+              result.lowerBound,
+              result.upperBound,
+            );
+
+            for (let i = 0; i < size; i++) {
+              controller.enqueue({
+                type: "payload",
+                payload: items[i],
+                ...(i === items.length - 1
+                  ? {
+                    end: {
+                      upperBound: result.upperBound,
+                      canRespond: false,
+                    },
+                  }
+                  : {}),
+              });
             }
 
             break;
@@ -470,6 +577,9 @@ export class MessageBroker<E, V, L> {
           case "fingerprint":
             isDoneSoFar = false;
             break;
+          case "emptyPayload":
+            isDoneSoFar = false;
+            break;
           case "payload":
             if (message.end?.canRespond === true) {
               isDoneSoFar = false;
@@ -511,6 +621,10 @@ export class MessageBroker<E, V, L> {
           }
           case "payload": {
             encoded = config.encode.payload(message.payload, message.end);
+            break;
+          }
+          case "emptyPayload": {
+            encoded = config.encode.emptyPayload(message.upperBound);
             break;
           }
           case "terminal": {

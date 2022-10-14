@@ -1,13 +1,28 @@
+import { assertEquals } from "https://deno.land/std@0.158.0/testing/asserts.ts";
 import { FingerprintTree } from "../src/fingerprint_tree.ts";
 import { testMonoid } from "../src/lifting_monoid.ts";
 import { MessageBroker } from "../src/message_broker.ts";
 import { testConfig } from "../src/message_broker_config.ts";
 
+function multiplyElements(elements: string[], by: number): string[] {
+  const acc = [];
+
+  for (const element of elements) {
+    acc.push(element);
+
+    for (let i = 2; i <= by; i++) {
+      acc.push(element + i);
+    }
+  }
+
+  return acc;
+}
+
 // Set up peer
 
 const treeA = new FingerprintTree(testMonoid);
 
-const setA = ["bee", "cat", "doe", "eel", "fox", "hog"];
+const setA = ["ape", "doe", "fox"];
 
 for (const item of setA) {
   treeA.insert(item);
@@ -29,7 +44,7 @@ const printerA = new TransformStream<string>({
 
 const treeB = new FingerprintTree(testMonoid);
 
-const setB = ["ape", "eel", "fox", "gnu"];
+const setB = ["bee", "hog"];
 
 for (const item of setB) {
   treeB.insert(item);
@@ -55,8 +70,11 @@ console.group("%c B has:", "color: blue");
 console.log(`%c ${Array.from(treeB.lnrValues())}`, "color: blue");
 console.groupEnd();
 
-brokerB.readable.pipeThrough(printerB).pipeTo(brokerA.writable);
-brokerA.readable.pipeThrough(printerA).pipeTo(brokerB.writable);
+brokerB.readable
+  .pipeThrough(printerB)
+  .pipeThrough(brokerA)
+  .pipeThrough(printerA)
+  .pipeTo(brokerB.writable);
 
 await Promise.all([brokerA.isDone(), brokerB.isDone()]);
 
@@ -67,3 +85,5 @@ console.groupEnd();
 console.group("%c B has:", "color: blue");
 console.log(`%c ${Array.from(treeB.lnrValues())}`, "color: blue");
 console.groupEnd();
+
+assertEquals(Array.from(treeA.lnrValues()), Array.from(treeB.lnrValues()));

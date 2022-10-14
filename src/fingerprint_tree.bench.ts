@@ -1,5 +1,5 @@
 import { FingerprintTree } from "./fingerprint_tree.ts";
-import { testMonoid, xorMonoid } from "./lifting_monoid.ts";
+import { testMonoid } from "./lifting_monoid.ts";
 
 const alphaElements = [
   "a",

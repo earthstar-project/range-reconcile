@@ -5,6 +5,7 @@ export type MessageBrokerConfig<EncodedType, ValueType, LiftType> = {
       value: ValueType,
       end?: { canRespond: boolean; upperBound: ValueType },
     ) => EncodedType;
+    emptyPayload: (upperBound: ValueType) => EncodedType;
     done: (upperBound: ValueType) => EncodedType;
     fingerprint: (
       fingerprint: LiftType,
@@ -13,13 +14,15 @@ export type MessageBrokerConfig<EncodedType, ValueType, LiftType> = {
     terminal: () => EncodedType;
   };
   decode: {
-    lowerBound: (message: EncodedType) => ValueType;
+    lowerBound: (message: EncodedType) => ValueType | false;
     payload: (
       message: EncodedType,
     ) => {
       value: ValueType;
       end?: { canRespond: boolean; upperBound: ValueType };
     } | false;
+    /** Returns the upper bound of the message */
+    emptyPayload: (message: EncodedType) => ValueType | false;
     /** Returns the upper bound of the message */
     done: (message: EncodedType) => ValueType | false;
     fingerprint: (
@@ -41,6 +44,11 @@ export const testConfig: MessageBrokerConfig<string, string, string> = {
         msg: "PAYLOAD",
         payload: v,
         ...(end ? { end } : {}),
+      }),
+    emptyPayload: (upperBound) =>
+      JSON.stringify({
+        msg: "EMPTY_PAYLOAD",
+        upperBound,
       }),
     done: (y) =>
       JSON.stringify({
@@ -81,6 +89,17 @@ export const testConfig: MessageBrokerConfig<string, string, string> = {
 
       return false;
     },
+
+    emptyPayload: (json) => {
+      const parsed = JSON.parse(json);
+
+      if (parsed["msg"] === "EMPTY_PAYLOAD") {
+        return parsed["upperBound"];
+      }
+
+      return false;
+    },
+
     done: (json) => {
       const parsed = JSON.parse(json);
 
