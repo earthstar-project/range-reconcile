@@ -303,7 +303,7 @@ export class MessageBroker<E, V, L> {
     });
 
     // In the third stage of the pipeline we formulate our response to these messages, as well as perform tree insertions.
-    //let reusableTree: NodeType<V, L> | undefined = undefined;
+    let reusableTree: NodeType<V, L> | undefined = undefined;
 
     const processStage = new TransformStream<
       CollateStageResult<V, L>,
@@ -314,7 +314,7 @@ export class MessageBroker<E, V, L> {
           case "lowerBound":
           case "terminal":
           case "done":
-            //     reusableTree = undefined;
+            reusableTree = undefined;
             controller.enqueue(result);
             break;
 
@@ -323,10 +323,10 @@ export class MessageBroker<E, V, L> {
             const { fingerprint, size, items, nextTree } = tree.getFingerprint(
               result.lowerBound,
               result.upperBound,
-              //            reusableTree,
+              reusableTree,
             );
 
-            //           reusableTree = nextTree || undefined;
+            reusableTree = nextTree || undefined;
 
             // If the fingeprints match, we've reconciled this range. Hooray!
             if (fingerprint === result.fingerprint) {
@@ -368,6 +368,7 @@ export class MessageBroker<E, V, L> {
               // TODO: make b configurable
 
               let itemsToUse = items;
+              let changedItems = false;
 
               if (result.lowerBound >= result.upperBound) {
                 // Search for the lower bound in items.
@@ -376,6 +377,8 @@ export class MessageBroker<E, V, L> {
                 if (indexOfLowerBound > 0) {
                   const newStart = items.slice(indexOfLowerBound);
                   const newEnd = items.slice(0, indexOfLowerBound);
+
+                  changedItems = true;
 
                   itemsToUse = [...newStart, ...newEnd];
                 }
@@ -405,11 +408,9 @@ export class MessageBroker<E, V, L> {
                 break;
               }
 
-              //let reusableTreeForChunks;
+              let reusableTreeForChunks = undefined;
 
               for (let i = 0; i < size; i += chunkSize) {
-                // For each chunk...
-
                 const rangeBeginning = itemsToUse[i];
                 const rangeEnd = itemsToUse[i + chunkSize] || result.upperBound;
 
@@ -417,10 +418,12 @@ export class MessageBroker<E, V, L> {
                   .getFingerprint(
                     rangeBeginning,
                     rangeEnd,
-                    //  reusableTreeForChunks,
+                    reusableTreeForChunks,
                   );
 
-                // reusableTreeForChunks = nextTree || undefined;
+                reusableTreeForChunks = changedItems
+                  ? undefined
+                  : nextTree || undefined;
 
                 controller.enqueue({
                   type: "fingerprint",
@@ -439,10 +442,10 @@ export class MessageBroker<E, V, L> {
               const { items, size, nextTree } = tree.getFingerprint(
                 result.lowerBound,
                 result.end.upperBound,
-                //            reusableTree,
+                reusableTree,
               );
 
-              //           reusableTree = nextTree || undefined;
+              reusableTree = nextTree || undefined;
 
               if (size === 0) {
                 controller.enqueue({
@@ -467,7 +470,7 @@ export class MessageBroker<E, V, L> {
               }
             } else {
               // Or are we done here...
-              //        reusableTree = undefined;
+              reusableTree = undefined;
 
               controller.enqueue({
                 type: "done",
@@ -484,13 +487,20 @@ export class MessageBroker<E, V, L> {
           }
 
           case "emptyPayload": {
+            reusableTree = undefined;
+
             const { items, size, nextTree } = tree.getFingerprint(
               result.lowerBound,
               result.upperBound,
-              // reusableTree,
+              reusableTree,
             );
 
-            //      reusableTree = nextTree || undefined;
+            reusableTree = nextTree || undefined;
+
+            if (size === 0) {
+              reusableTree = undefined;
+              break;
+            }
 
             for (let i = 0; i < size; i++) {
               controller.enqueue({
@@ -529,20 +539,7 @@ export class MessageBroker<E, V, L> {
           }
 
           default: {
-            /*
-            if (
-              result.type === "fingerprint" || result.type === "emptyPayload"
-            ) {
-              if (result.upperBound === lastDoneUpperBound) {
-                lastDoneUpperBound = null;
-              }
-            } else if (result.type === "payload") {
-              if (result.end?.upperBound === lastDoneUpperBound) {
-                lastDoneUpperBound = null;
-              }
-            } else
-
-            */ if (lastDoneUpperBound) {
+            if (lastDoneUpperBound) {
               controller.enqueue({
                 "type": "done",
                 upperBound: lastDoneUpperBound,

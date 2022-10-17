@@ -61,10 +61,53 @@ function multiplyElements(elements: string[], by: number): string[] {
   return acc;
 }
 
-const a500 = multiplyElements(setA, 100);
-const b500 = multiplyElements(setB, 100);
+const a100 = multiplyElements(setA, 100);
+const b100 = multiplyElements(setB, 100);
 
 Deno.bench("Instantiate two sets (size 600, 400)", () => {
+  const treeA = new FingerprintTree(testMonoid);
+
+  for (const item of a100) {
+    treeA.insert(item);
+  }
+
+  const treeB = new FingerprintTree(testMonoid);
+
+  for (const item of b100) {
+    treeB.insert(item);
+  }
+});
+
+Deno.bench("Instantiate and sync two sets (size 600, 400)", async () => {
+  const treeA = new FingerprintTree(testMonoid);
+
+  for (const item of a100) {
+    treeA.insert(item);
+  }
+
+  const brokerA = new MessageBroker(treeA, testConfig, false);
+
+  // Other peer
+
+  const treeB = new FingerprintTree(testMonoid);
+
+  for (const item of b100) {
+    treeB.insert(item);
+  }
+
+  const brokerB = new MessageBroker(treeB, testConfig, true);
+
+  brokerB.readable.pipeThrough(brokerA).pipeThrough(
+    new TransformStream({}, new CountQueuingStrategy({ highWaterMark: 10000 })),
+  ).pipeTo(brokerB.writable);
+
+  await Promise.all([brokerA.isDone(), brokerB.isDone()]);
+});
+
+const a500 = multiplyElements(setA, 500);
+const b500 = multiplyElements(setB, 500);
+
+Deno.bench("Instantiate two sets (size 3000, 2000)", () => {
   const treeA = new FingerprintTree(testMonoid);
 
   for (const item of a500) {
@@ -78,7 +121,7 @@ Deno.bench("Instantiate two sets (size 600, 400)", () => {
   }
 });
 
-Deno.bench("Instantiate and sync two sets (size 6000, 4000)", async () => {
+Deno.bench("Instantiate and sync two sets (size 3000, 2000)", async () => {
   const treeA = new FingerprintTree(testMonoid);
 
   for (const item of a500) {
@@ -98,7 +141,7 @@ Deno.bench("Instantiate and sync two sets (size 6000, 4000)", async () => {
   const brokerB = new MessageBroker(treeB, testConfig, true);
 
   brokerB.readable.pipeThrough(brokerA).pipeThrough(
-    new TransformStream({}, new CountQueuingStrategy({ highWaterMark: 1000 })),
+    new TransformStream({}, new CountQueuingStrategy({ highWaterMark: 10000 })),
   ).pipeTo(brokerB.writable);
 
   await Promise.all([brokerA.isDone(), brokerB.isDone()]);
