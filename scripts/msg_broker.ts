@@ -22,7 +22,15 @@ function multiplyElements(elements: string[], by: number): string[] {
 
 const treeA = new FingerprintTree(testMonoid);
 
-const setA = ["doe", "cat"];
+const setA = [
+  "eel",
+  "bee",
+  "fox",
+  "hog",
+  "cat",
+  "ape",
+  "gnu",
+];
 
 for (const item of setA) {
   treeA.insert(item);
@@ -34,16 +42,7 @@ const brokerA = new MessageBroker(treeA, testConfig, false);
 
 const treeB = new FingerprintTree(testMonoid);
 
-const setB = [
-  "cat",
-  "cat2",
-  "eel",
-  "eel2",
-  "ape",
-  "ape2",
-  "hog",
-  "hog2",
-];
+const setB = ["doe", "doe2", "fox", "fox2"];
 
 for (const item of setB) {
   treeB.insert(item);

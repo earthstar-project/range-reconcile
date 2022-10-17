@@ -42,8 +42,7 @@ Deno.bench("Instantiate and sync two sets (size 6, 4)", async () => {
 
   const brokerB = new MessageBroker(treeB, testConfig, true);
 
-  brokerB.readable.pipeThrough(brokerA);
-  brokerA.readable.pipeThrough(brokerB);
+  brokerB.readable.pipeThrough(brokerA).pipeTo(brokerB.writable);
 
   await Promise.all([brokerA.isDone(), brokerB.isDone()]);
 });
@@ -62,10 +61,10 @@ function multiplyElements(elements: string[], by: number): string[] {
   return acc;
 }
 
-const a500 = multiplyElements(setA, 1000);
-const b500 = multiplyElements(setB, 1000);
+const a500 = multiplyElements(setA, 100);
+const b500 = multiplyElements(setB, 100);
 
-Deno.bench("Instantiate two sets (size 6000, 4000)", () => {
+Deno.bench("Instantiate two sets (size 600, 400)", () => {
   const treeA = new FingerprintTree(testMonoid);
 
   for (const item of a500) {
@@ -98,8 +97,9 @@ Deno.bench("Instantiate and sync two sets (size 6000, 4000)", async () => {
 
   const brokerB = new MessageBroker(treeB, testConfig, true);
 
-  brokerB.readable.pipeThrough(brokerA);
-  brokerA.readable.pipeThrough(brokerB);
+  brokerB.readable.pipeThrough(brokerA).pipeThrough(
+    new TransformStream({}, new CountQueuingStrategy({ highWaterMark: 1000 })),
+  ).pipeTo(brokerB.writable);
 
   await Promise.all([brokerA.isDone(), brokerB.isDone()]);
 });

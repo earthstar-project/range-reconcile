@@ -101,6 +101,12 @@ async function createTestCase() {
   brokerB.readable
     .pipeThrough(printerB)
     .pipeThrough(brokerA)
+    .pipeThrough(
+      new TransformStream(
+        {},
+        new CountQueuingStrategy({ highWaterMark: 100000 }),
+      ),
+    )
     .pipeThrough(printerA)
     .pipeTo(brokerB.writable);
 
@@ -123,7 +129,7 @@ async function createTestCase() {
 }
 
 Deno.test("Fuzz message broker", async (test) => {
-  for (let i = 0; i < 100; i++) {
+  for (let i = 0; i < 1000; i++) {
     await test.step(`Iteration ${i}`, async () => {
       const { log, setA, setB, ogA, ogB } = await createTestCase();
 
@@ -136,7 +142,10 @@ Deno.test("Fuzz message broker", async (test) => {
 
           for (let i = 0; i < log.length; i++) {
             console.group(i % 2 === 0 ? "B" : "A");
-            for (const msg of log[i]) {
+
+            const maybeLog = log[i];
+
+            for (const msg of maybeLog || []) {
               console.log(msg);
             }
             console.groupEnd();
