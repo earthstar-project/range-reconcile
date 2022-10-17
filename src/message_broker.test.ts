@@ -68,10 +68,8 @@ async function createTestCase() {
 
   const printerA = new TransformStream<string>({
     transform(message, controller) {
-      if (liveDebugLog) {
-        console.group("A");
-        console.log(message);
-        console.groupEnd();
+      if (debugLive) {
+        console.log("A", message);
       }
 
       aLog.push(message);
@@ -86,10 +84,8 @@ async function createTestCase() {
 
   const printerB = new TransformStream<string>({
     transform(message, controller) {
-      if (liveDebugLog) {
-        console.group("B");
-        console.log(message);
-        console.groupEnd();
+      if (debugLive) {
+        console.log("B", message);
       }
 
       bLog.push(message);
@@ -121,18 +117,23 @@ async function createTestCase() {
     log,
     setA: Array.from(treeA.lnrValues()),
     setB: Array.from(treeB.lnrValues()),
+    ogA: setA,
+    ogB: setB,
   };
 }
 
 Deno.test("Fuzz message broker", async (test) => {
   for (let i = 0; i < 100; i++) {
     await test.step(`Iteration ${i}`, async () => {
-      const { log, setA, setB } = await createTestCase();
+      const { log, setA, setB, ogA, ogB } = await createTestCase();
 
       try {
         assertEquals(setA, setB);
       } catch {
         if (debugLog) {
+          console.log("Set A:", ogA);
+          console.log("Set B:", ogB);
+
           for (let i = 0; i < log.length; i++) {
             console.group(i % 2 === 0 ? "B" : "A");
             for (const msg of log[i]) {
@@ -149,4 +150,4 @@ Deno.test("Fuzz message broker", async (test) => {
 });
 
 const debugLog = true;
-const liveDebugLog = true;
+const debugLive = false;

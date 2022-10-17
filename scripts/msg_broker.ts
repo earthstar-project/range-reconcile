@@ -22,7 +22,7 @@ function multiplyElements(elements: string[], by: number): string[] {
 
 const treeA = new FingerprintTree(testMonoid);
 
-const setA = ["ape", "doe", "fox"];
+const setA = ["doe", "cat"];
 
 for (const item of setA) {
   treeA.insert(item);
@@ -30,21 +30,20 @@ for (const item of setA) {
 
 const brokerA = new MessageBroker(treeA, testConfig, false);
 
-const printerA = new TransformStream<string>({
-  transform(message, controller) {
-    console.group("%c A →", "color: red");
-    console.log(`%c ${message}`, "color: red");
-    console.groupEnd();
-
-    controller.enqueue(message);
-  },
-});
-
 // Other peer
 
 const treeB = new FingerprintTree(testMonoid);
 
-const setB = ["bee", "hog"];
+const setB = [
+  "cat",
+  "cat2",
+  "eel",
+  "eel2",
+  "ape",
+  "ape2",
+  "hog",
+  "hog2",
+];
 
 for (const item of setB) {
   treeB.insert(item);
@@ -52,11 +51,51 @@ for (const item of setB) {
 
 const brokerB = new MessageBroker(treeB, testConfig, true);
 
+const aLog: string[] = [];
+const bLog: string[] = [];
+
+const aLogs: string[][] = [];
+const bLogs: string[][] = [];
+
+const printerA = new TransformStream<string>({
+  transform(message, controller) {
+    aLog.push(message);
+
+    if (message.includes("TERMINAL")) {
+      aLogs.push(aLog.splice(0, aLog.length));
+
+      console.group("%c A", "color: red");
+
+      const logs = aLogs[aLogs.length - 1];
+
+      for (const log of logs) {
+        console.log(`%c ${log}`, "color: red");
+      }
+
+      console.groupEnd();
+    }
+
+    controller.enqueue(message);
+  },
+});
+
 const printerB = new TransformStream<string>({
   transform(message, controller) {
-    console.group("%c B →", "color: blue");
-    console.log(`%c ${message}`, "color: blue");
-    console.groupEnd();
+    bLog.push(message);
+
+    if (message.includes("TERMINAL")) {
+      bLogs.push(bLog.splice(0, bLog.length));
+
+      console.group("%c B", "color: blue");
+
+      const logs = bLogs[bLogs.length - 1];
+
+      for (const log of logs) {
+        console.log(`%c ${log}`, "color: blue");
+      }
+
+      console.groupEnd();
+    }
 
     controller.enqueue(message);
   },
