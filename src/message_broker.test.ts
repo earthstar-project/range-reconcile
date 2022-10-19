@@ -1,8 +1,10 @@
+import { deferred } from "https://deno.land/std@0.158.0/async/deferred.ts";
 import { assertEquals } from "https://deno.land/std@0.158.0/testing/asserts.ts";
 import { FingerprintTree } from "../src/fingerprint_tree.ts";
 import { testMonoid } from "../src/lifting_monoid.ts";
 import { MessageBroker } from "../src/message_broker.ts";
 import { testConfig } from "../src/message_broker_config.ts";
+import { sync } from "./util.ts";
 
 function multiplyElements(elements: string[], by: number): string[] {
   const acc = [];
@@ -34,7 +36,7 @@ function createTestSet() {
     acc.push(...remaining.splice(index, 1));
   }
 
-  return multiplyElements(acc, Math.floor(Math.random() * 2) + 1);
+  return multiplyElements(acc, Math.floor(Math.random() * 4) + 1);
 }
 
 async function createTestCase() {
@@ -46,7 +48,7 @@ async function createTestCase() {
     treeA.insert(item);
   }
 
-  const brokerA = new MessageBroker(treeA, testConfig, false);
+  const brokerA = new MessageBroker(treeA, testConfig);
 
   // Other peer
 
@@ -58,7 +60,7 @@ async function createTestCase() {
     treeB.insert(item);
   }
 
-  const brokerB = new MessageBroker(treeB, testConfig, true);
+  const brokerB = new MessageBroker(treeB, testConfig);
 
   const aLog: string[] = [];
   const bLog: string[] = [];
@@ -82,35 +84,7 @@ async function createTestCase() {
     },
   });
 
-  const printerB = new TransformStream<string>({
-    transform(message, controller) {
-      if (debugLive) {
-        console.log("B", message);
-      }
-
-      bLog.push(message);
-
-      if (message.includes("TERMINAL")) {
-        bLogs.push(bLog.splice(0, bLog.length));
-      }
-
-      controller.enqueue(message);
-    },
-  });
-
-  brokerB.readable
-    .pipeThrough(printerB)
-    .pipeThrough(brokerA)
-    .pipeThrough(
-      new TransformStream(
-        {},
-        new CountQueuingStrategy({ highWaterMark: 100000 }),
-      ),
-    )
-    .pipeThrough(printerA)
-    .pipeTo(brokerB.writable);
-
-  await Promise.all([brokerA.isDone(), brokerB.isDone()]);
+  await sync(brokerA, brokerB);
 
   const log: string[][] = [];
 
@@ -128,35 +102,33 @@ async function createTestCase() {
   };
 }
 
-Deno.test("Fuzz message broker", async (test) => {
+Deno.test("Message broker (fuzz)", async () => {
   for (let i = 0; i < 1000; i++) {
-    await test.step(`Iteration ${i}`, async () => {
-      const { log, setA, setB, ogA, ogB } = await createTestCase();
+    const { log, setA, setB, ogA, ogB } = await createTestCase();
 
-      try {
-        assertEquals(setA, setB);
-      } catch {
-        if (debugLog) {
-          console.log("Set A:", ogA);
-          console.log("Set B:", ogB);
+    try {
+      assertEquals(setA, setB);
+    } catch {
+      if (debugLog) {
+        console.log("Set A:", ogA);
+        console.log("Set B:", ogB);
 
-          for (let i = 0; i < log.length; i++) {
-            console.group(i % 2 === 0 ? "B" : "A");
+        for (let i = 0; i < log.length; i++) {
+          console.group(i % 2 === 0 ? "B" : "A");
 
-            const maybeLog = log[i];
+          const maybeLog = log[i];
 
-            for (const msg of maybeLog || []) {
-              console.log(msg);
-            }
-            console.groupEnd();
+          for (const msg of maybeLog || []) {
+            console.log(msg);
           }
+          console.groupEnd();
         }
       }
+    }
 
-      assertEquals(setA, setB);
-    });
+    assertEquals(setA, setB);
   }
 });
 
-const debugLog = true;
+const debugLog = false;
 const debugLive = false;

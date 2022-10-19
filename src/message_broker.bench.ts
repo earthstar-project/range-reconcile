@@ -1,148 +1,63 @@
+import { Deferred } from "https://deno.land/std@0.158.0/async/deferred.ts";
 import { FingerprintTree } from "../src/fingerprint_tree.ts";
-import { testMonoid } from "../src/lifting_monoid.ts";
+import { xxHash32XorMonoid } from "../src/lifting_monoid.ts";
 import { MessageBroker } from "../src/message_broker.ts";
-import { testConfig } from "../src/message_broker_config.ts";
+import { uint8TestConfig } from "../src/message_broker_config.ts";
+import { sync } from "./util.ts";
 
-// Set up peer
+function makeSet(size: number): number[] {
+  const set = new Set<number>();
 
-const setA = ["bee ", "cat", "doe", "eel", "fox", "hog"];
+  for (let i = 0; i < size; i++) {
+    const int = Math.floor(Math.random() * ((size * 2) - 1 + 1) + 1);
 
-const setB = ["ape", "eel", "fox", "gnu"];
-
-Deno.bench("Instantiate two sets (size 6, 4)", () => {
-  const treeA = new FingerprintTree(testMonoid);
-
-  for (const item of setA) {
-    treeA.insert(item);
+    set.add(int);
   }
 
-  const treeB = new FingerprintTree(testMonoid);
-
-  for (const item of setB) {
-    treeB.insert(item);
-  }
-});
-
-Deno.bench("Instantiate and sync two sets (size 6, 4)", async () => {
-  const treeA = new FingerprintTree(testMonoid);
-
-  for (const item of setA) {
-    treeA.insert(item);
-  }
-
-  const brokerA = new MessageBroker(treeA, testConfig, false);
-
-  // Other peer
-
-  const treeB = new FingerprintTree(testMonoid);
-
-  for (const item of setB) {
-    treeB.insert(item);
-  }
-
-  const brokerB = new MessageBroker(treeB, testConfig, true);
-
-  brokerB.readable.pipeThrough(brokerA).pipeTo(brokerB.writable);
-
-  await Promise.all([brokerA.isDone(), brokerB.isDone()]);
-});
-
-function multiplyElements(elements: string[], by: number): string[] {
-  const acc = [];
-
-  for (const element of elements) {
-    acc.push(element);
-
-    for (let i = 2; i <= by; i++) {
-      acc.push(element.repeat(i));
-    }
-  }
-
-  return acc;
+  return Array.from(set);
 }
 
-const a100 = multiplyElements(setA, 100);
-const b100 = multiplyElements(setB, 100);
+const sizes = [10, 100, 1000, 10000];
 
-Deno.bench("Instantiate two sets (size 600, 400)", () => {
-  const treeA = new FingerprintTree(testMonoid);
+const encoder = new TextEncoder();
 
-  for (const item of a100) {
-    treeA.insert(item);
-  }
+for (const size of sizes) {
+  Deno.bench(`Instantiate two sets (size ${size})`, () => {
+    const treeA = new FingerprintTree(xxHash32XorMonoid);
 
-  const treeB = new FingerprintTree(testMonoid);
+    for (const item of makeSet(size)) {
+      treeA.insert(encoder.encode(`${item}`));
+    }
 
-  for (const item of b100) {
-    treeB.insert(item);
-  }
-});
+    const treeB = new FingerprintTree(xxHash32XorMonoid);
 
-Deno.bench("Instantiate and sync two sets (size 600, 400)", async () => {
-  const treeA = new FingerprintTree(testMonoid);
+    for (const item of makeSet(size)) {
+      treeB.insert(encoder.encode(`${item}`));
+    }
+  });
 
-  for (const item of a100) {
-    treeA.insert(item);
-  }
+  Deno.bench(`Instantiate and sync two sets (size ${size})`, async () => {
+    const treeA = new FingerprintTree(xxHash32XorMonoid);
 
-  const brokerA = new MessageBroker(treeA, testConfig, false);
+    for (const item of makeSet(size)) {
+      treeA.insert(encoder.encode(`${item}`));
+    }
 
-  // Other peer
+    const treeB = new FingerprintTree(xxHash32XorMonoid);
 
-  const treeB = new FingerprintTree(testMonoid);
+    for (const item of makeSet(size)) {
+      treeB.insert(encoder.encode(`${item}`));
+    }
 
-  for (const item of b100) {
-    treeB.insert(item);
-  }
+    const brokerA = new MessageBroker(
+      treeB,
+      uint8TestConfig,
+    );
+    const brokerB = new MessageBroker(
+      treeB,
+      uint8TestConfig,
+    );
 
-  const brokerB = new MessageBroker(treeB, testConfig, true);
-
-  brokerB.readable.pipeThrough(brokerA).pipeThrough(
-    new TransformStream({}, new CountQueuingStrategy({ highWaterMark: 10000 })),
-  ).pipeTo(brokerB.writable);
-
-  await Promise.all([brokerA.isDone(), brokerB.isDone()]);
-});
-
-const a500 = multiplyElements(setA, 500);
-const b500 = multiplyElements(setB, 500);
-
-Deno.bench("Instantiate two sets (size 3000, 2000)", () => {
-  const treeA = new FingerprintTree(testMonoid);
-
-  for (const item of a500) {
-    treeA.insert(item);
-  }
-
-  const treeB = new FingerprintTree(testMonoid);
-
-  for (const item of b500) {
-    treeB.insert(item);
-  }
-});
-
-Deno.bench("Instantiate and sync two sets (size 3000, 2000)", async () => {
-  const treeA = new FingerprintTree(testMonoid);
-
-  for (const item of a500) {
-    treeA.insert(item);
-  }
-
-  const brokerA = new MessageBroker(treeA, testConfig, false);
-
-  // Other peer
-
-  const treeB = new FingerprintTree(testMonoid);
-
-  for (const item of b500) {
-    treeB.insert(item);
-  }
-
-  const brokerB = new MessageBroker(treeB, testConfig, true);
-
-  brokerB.readable.pipeThrough(brokerA).pipeThrough(
-    new TransformStream({}, new CountQueuingStrategy({ highWaterMark: 10000 })),
-  ).pipeTo(brokerB.writable);
-
-  await Promise.all([brokerA.isDone(), brokerB.isDone()]);
-});
+    await sync(brokerA, brokerB);
+  });
+}

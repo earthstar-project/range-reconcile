@@ -46,19 +46,19 @@ export const sizeMonoid: LiftingMonoid<unknown, number> = {
   neutral: 0,
 };
 
-export const xorMonoid: LiftingMonoid<Uint8Array, Uint8Array> = {
+export const xxHash32XorMonoid: LiftingMonoid<Uint8Array, Uint8Array> = {
   lift: (v: Uint8Array) => {
     const hash = xxHash32(v).toString(16);
     return new TextEncoder().encode(hash);
   },
   combine: (a: Uint8Array, b: Uint8Array) => {
-    const res = new Uint8Array(a);
+    const xored = [];
 
     for (let i = 0; i < a.length; i++) {
-      Atomics.xor(res, i, b[i]);
+      xored.push(a[i] ^ b[i]);
     }
 
-    return res;
+    return new Uint8Array(xored);
   },
   neutral: new Uint8Array(8),
 };

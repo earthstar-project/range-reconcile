@@ -1,25 +1,27 @@
-import { DocThumbnailDecoded, DocThumbnailEncoded } from "./types.ts";
+import { Deferred } from "https://deno.land/std@0.158.0/async/deferred.ts";
+import { MessageBroker } from "./message_broker.ts";
 
-export function encodeDocThumbnail(
-  thumbnail: DocThumbnailDecoded,
-): DocThumbnailEncoded {
-  return `${thumbnail.path} ${thumbnail.author} ${thumbnail.timestamp}`;
-}
+export async function sync<E, V, L>(
+  from: MessageBroker<E, V, L>,
+  to: MessageBroker<E, V, L>,
+  messages?: AsyncIterable<E> | Iterable<E>,
+  isDone?: Deferred<unknown>,
+): Promise<void> {
+  const msgs: E[] = [];
 
-export function decodeDocThumbnail(
-  thumbnail: DocThumbnailEncoded,
-): DocThumbnailDecoded {
-  const [path, author, timestamp] = thumbnail.split(" ");
+  const messagesToProcess = messages || from.initialEvents();
 
-  if (!path || !author || !timestamp) {
-    throw ("Couldn't get thumbnail parts");
+  for await (
+    const msg of to.process(
+      messagesToProcess as unknown as AsyncIterable<E>,
+    )
+  ) {
+    msgs.push(msg);
   }
 
-  return { path, author, timestamp: parseInt(timestamp) };
-}
-
-export function uint8ToString(uint8: Uint8Array): string {
-  const view = new DataView(uint8.buffer, 0);
-
-  return view.getUint32(0, true).toString(16);
+  if (isDone?.state === "fulfilled") {
+    return Promise.resolve();
+  } else {
+    await sync(to, from, msgs, to.isDone());
+  }
 }

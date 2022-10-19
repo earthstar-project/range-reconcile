@@ -1,109 +1,71 @@
+import { RedBlackTree } from "https://deno.land/std@0.158.0/collections/red_black_tree.ts";
 import { FingerprintTree } from "./fingerprint_tree.ts";
-import { testMonoid } from "./lifting_monoid.ts";
+import { xxHash32XorMonoid } from "./lifting_monoid.ts";
 
-const alphaElements = [
-  "a",
-  "b",
-  "c",
-  "d",
-  "e",
-  "f",
-  "g",
-  "h",
-  "i",
-  "j",
-  "k",
-  "l",
-  "m",
-  "n",
-  "o",
-  "p",
-  "q",
-  "r",
-  "s",
-  "t",
-  "u",
-  "v",
-  "w",
-  "x",
-  "y",
-  "z",
-];
+function makeSet(size: number): number[] {
+  const set = new Set<number>();
 
-function multiplyElements(elements: string[], by: number): string[] {
-  const acc = [];
+  for (let i = 0; i < size; i++) {
+    const int = Math.floor(Math.random() * ((size * 2) - 1 + 1) + 1);
 
-  for (const element of elements) {
-    acc.push(element);
+    set.add(int);
+  }
 
-    for (let i = 2; i <= by; i++) {
-      acc.push(element.repeat(i));
+  return Array.from(set);
+}
+
+const sizes = [10, 100, 1000, 10000, 100000];
+
+const encoder = new TextEncoder();
+
+for (const size of sizes) {
+  const set = makeSet(size);
+  const tree = new FingerprintTree(xxHash32XorMonoid);
+  const rbTree = new RedBlackTree();
+
+  Deno.bench(`Insert into RedBlackTree (${size} items)`, {
+    group: `insert (${size})`,
+    baseline: true,
+  }, () => {
+    for (const element of set) {
+      rbTree.insert(element);
     }
-  }
+  });
 
-  return acc;
+  Deno.bench(`Insert into FingerPrintTree (${size} items)`, {
+    group: `insert (${size})`,
+  }, () => {
+    for (const element of set) {
+      tree.insert(encoder.encode(`${element}`));
+    }
+  });
+
+  const min = encoder.encode(`${Math.min(...set)}`);
+  const max = encoder.encode(`${Math.max(...set)}`);
+  const mid = encoder.encode(`${Math.floor(Math.max(...set) / 2)}`);
+
+  Deno.bench(`Fingerprint min - min (${size} items) `, {
+    group: `fingerprint (${size})`,
+    baseline: true,
+  }, () => {
+    tree.getFingerprint(min, min);
+  });
+
+  Deno.bench(`Fingerprint min - mid (${size} items) `, {
+    group: `fingerprint (${size})`,
+  }, () => {
+    tree.getFingerprint(min, mid);
+  });
+
+  Deno.bench(`Fingerprint mid - mid (${size} items) `, {
+    group: `fingerprint (${size})`,
+  }, () => {
+    tree.getFingerprint(mid, mid);
+  });
+
+  Deno.bench(`Fingerprint mid - min (${size} items) `, {
+    group: `fingerprint (${size})`,
+  }, () => {
+    tree.getFingerprint(mid, min);
+  });
 }
-
-function makeTree(
-  elements: string[],
-): FingerprintTree<string, string> {
-  const tree = new FingerprintTree(testMonoid);
-
-  for (const element of elements) {
-    tree.insert(element);
-  }
-
-  return tree;
-}
-
-const smallestTree = makeTree(alphaElements);
-
-Deno.bench("Fingerprint a - a (26 elements)", () => {
-  smallestTree.getFingerprint("a", "a");
-});
-
-Deno.bench("Fingerprint a - b (26 elements)", () => {
-  smallestTree.getFingerprint("a", "b");
-});
-
-Deno.bench("Fingerprint a - l (26 elements)", () => {
-  smallestTree.getFingerprint("a", "l");
-});
-
-Deno.bench("Fingerprint b - b (26 elements)", () => {
-  smallestTree.getFingerprint("b", "b");
-});
-
-Deno.bench("Fingerprint b - c (26 elements)", () => {
-  smallestTree.getFingerprint("b", "c");
-});
-
-Deno.bench("Fingerprint b - l (26 elements)", () => {
-  smallestTree.getFingerprint("b", "l");
-});
-
-const bigTree = makeTree(multiplyElements(alphaElements, 500));
-
-Deno.bench("Fingerprint a - a (13000 elements)", () => {
-  bigTree.getFingerprint("a", "a");
-});
-
-Deno.bench("Fingerprint a - b (13000 elements)", () => {
-  bigTree.getFingerprint("a", "b");
-});
-
-Deno.bench("Fingerprint a - l (13000 elements)", () => {
-  bigTree.getFingerprint("a", "l");
-});
-
-Deno.bench("Fingerprint b - b (13000 elements)", () => {
-  bigTree.getFingerprint("b", "b");
-});
-
-Deno.bench("Fingerprint b - c (13000 elements)", () => {
-  bigTree.getFingerprint("b", "c");
-});
-
-Deno.bench("Fingerprint b - l (13000 elements)", () => {
-  bigTree.getFingerprint("b", "l");
-});

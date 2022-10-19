@@ -1,6 +1,11 @@
+import {
+  decode,
+  encode,
+} from "https://deno.land/std@0.158.0/encoding/base64.ts";
+
 export type MessageBrokerConfig<EncodedType, ValueType, LiftType> = {
   encode: {
-    lowerBound: (value: ValueType | null) => EncodedType;
+    lowerBound: (value: ValueType) => EncodedType;
     payload: (
       value: ValueType,
       end?: { canRespond: boolean; upperBound: ValueType },
@@ -9,7 +14,7 @@ export type MessageBrokerConfig<EncodedType, ValueType, LiftType> = {
     done: (upperBound: ValueType) => EncodedType;
     fingerprint: (
       fingerprint: LiftType,
-      upperBound: ValueType | null,
+      upperBound: ValueType,
     ) => EncodedType;
     terminal: () => EncodedType;
   };
@@ -116,6 +121,125 @@ export const testConfig: MessageBrokerConfig<string, string, string> = {
         return {
           fingerprint: parsed["fingerprint"],
           upperBound: parsed["y"],
+        };
+      }
+
+      return false;
+    },
+    terminal: (json) => {
+      const parsed = JSON.parse(json);
+
+      if (parsed["msg"] === "TERMINAL") {
+        return true;
+      }
+
+      return false;
+    },
+  },
+};
+
+export const uint8TestConfig: MessageBrokerConfig<
+  string,
+  Uint8Array,
+  Uint8Array
+> = {
+  encode: {
+    lowerBound: (x) =>
+      JSON.stringify({
+        msg: "LOWER",
+        x: encode(x),
+      }),
+    payload: (v, end) =>
+      JSON.stringify({
+        msg: "PAYLOAD",
+        payload: encode(v),
+        ...(end
+          ? {
+            end: {
+              canRespond: end.canRespond,
+              upperBound: encode(end.upperBound),
+            },
+          }
+          : {}),
+      }),
+    emptyPayload: (upperBound) =>
+      JSON.stringify({
+        msg: "EMPTY_PAYLOAD",
+        upperBound: encode(upperBound),
+      }),
+    done: (y) =>
+      JSON.stringify({
+        msg: "DONE",
+        y: encode(y),
+      }),
+    fingerprint: (fp, y) =>
+      JSON.stringify({
+        msg: "FINGERPRINT",
+        fingerprint: encode(fp),
+        y: encode(y),
+      }),
+    terminal: () =>
+      JSON.stringify({
+        msg: "TERMINAL",
+      }),
+  },
+  decode: {
+    lowerBound: (json) => {
+      const parsed = JSON.parse(json);
+
+      if (parsed["msg"] === "LOWER") {
+        return decode(parsed["x"]);
+      }
+
+      return false;
+    },
+
+    payload: (json) => {
+      const parsed = JSON.parse(json);
+
+      if (parsed["msg"] === "PAYLOAD") {
+        return {
+          value: decode(parsed["payload"]),
+          ...(parsed["end"]
+            ? {
+              end: {
+                canRespond: parsed["end"]["canRespond"],
+                upperBound: decode(parsed["end"]["upperBound"]),
+              },
+            }
+            : {}),
+        };
+      }
+
+      return false;
+    },
+
+    emptyPayload: (json) => {
+      const parsed = JSON.parse(json);
+
+      if (parsed["msg"] === "EMPTY_PAYLOAD") {
+        return decode(parsed["upperBound"]);
+      }
+
+      return false;
+    },
+
+    done: (json) => {
+      const parsed = JSON.parse(json);
+
+      if (parsed["msg"] === "DONE") {
+        return decode(parsed["y"]);
+      }
+
+      return false;
+    },
+    fingerprint: (json) => {
+      const parsed = JSON.parse(json);
+
+      if (parsed["msg"] === "FINGERPRINT") {
+        return {
+          fingerprint: decode(parsed["fingerprint"]),
+          upperBound: decode(parsed["y"]),
         };
       }
 

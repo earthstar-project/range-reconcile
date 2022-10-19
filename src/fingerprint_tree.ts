@@ -15,7 +15,7 @@ export class FingerprintNode<
   declare left: FingerprintNode<ValueType, LiftType> | null;
   declare right: FingerprintNode<ValueType, LiftType> | null;
 
-  fingerprint: LiftType;
+  label: LiftType;
   liftedValue: LiftType;
 
   private monoid: LiftingMonoid<ValueType, LiftType>;
@@ -27,20 +27,34 @@ export class FingerprintNode<
   ) {
     super(parent, value);
 
-    this.fingerprint = monoid.neutral;
+    this.label = monoid.neutral;
     this.liftedValue = monoid.lift(value);
     this.monoid = monoid;
   }
 
   updateLabel(updateParent = true, reason?: string) {
     // Update our label
-    this.fingerprint = this.monoid.combine(
-      this.left?.fingerprint || this.monoid.neutral,
-      this.monoid.combine(
+    if (this.left !== null && this.right === null) {
+      this.label = this.monoid.combine(
+        this.left.label,
         this.liftedValue,
-        this.right?.fingerprint || this.monoid.neutral,
-      ),
-    );
+      );
+    } else if (this.left === null && this.right !== null) {
+      this.label = this.monoid.combine(
+        this.liftedValue,
+        this.right.label,
+      );
+    } else if (this.left && this.right) {
+      this.label = this.monoid.combine(
+        this.left?.label || this.monoid.neutral,
+        this.monoid.combine(
+          this.liftedValue,
+          this.right?.label || this.monoid.neutral,
+        ),
+      );
+    } else {
+      this.label = this.liftedValue;
+    }
 
     if (debug) {
       if (reason) {
@@ -50,13 +64,13 @@ export class FingerprintNode<
       console.log("Lifted value", this.liftedValue);
       console.log(
         "Label L",
-        this.left?.fingerprint || this.monoid.neutral,
+        this.left?.label || this.monoid.neutral,
       );
       console.log(
         "Label R",
-        this.right?.fingerprint || this.monoid.neutral,
+        this.right?.label || this.monoid.neutral,
       );
-      console.log("Label", this.fingerprint);
+      console.log("Label", this.label);
       console.groupEnd();
     }
 
@@ -271,8 +285,6 @@ export class FingerprintTree<V, L> extends RedBlackTree<V> {
 
     originalNode?.updateLabel(true, "Node inserted");
 
-    console.groupEnd();
-
     return !!node;
   }
 
@@ -286,7 +298,7 @@ export class FingerprintTree<V, L> extends RedBlackTree<V> {
     }
 
     if (node) {
-      node.parent?.updateLabel(true, "Succeeded");
+      node.parent?.updateLabel(true, "Child node removed");
     }
 
     return !!node;
@@ -315,9 +327,9 @@ export class FingerprintTree<V, L> extends RedBlackTree<V> {
 
     if (order === 0) {
       return {
-        fingerprint: this.root.fingerprint[0],
-        size: this.root.fingerprint[1][0],
-        items: this.root.fingerprint[1][1],
+        fingerprint: this.root.label[0],
+        size: this.root.label[1][0],
+        items: this.root.label[1][1],
         nextTree: null,
       };
     } else if (order < 0) {
@@ -432,7 +444,7 @@ export class FingerprintTree<V, L> extends RedBlackTree<V> {
           acc,
           this.monoid.combine(
             tree.liftedValue,
-            tree.right?.fingerprint || this.monoid.neutral,
+            tree.right?.label || this.monoid.neutral,
           ),
         );
       }
@@ -463,7 +475,7 @@ export class FingerprintTree<V, L> extends RedBlackTree<V> {
         acc2 = this.monoid.combine(
           acc2,
           this.monoid.combine(
-            tree.left?.fingerprint || this.monoid.neutral,
+            tree.left?.label || this.monoid.neutral,
             tree.liftedValue,
           ),
         );
@@ -473,7 +485,7 @@ export class FingerprintTree<V, L> extends RedBlackTree<V> {
         return {
           label: this.monoid.combine(
             acc2,
-            tree.left?.fingerprint || this.monoid.neutral,
+            tree.left?.label || this.monoid.neutral,
           ),
           nextTree: tree,
         };

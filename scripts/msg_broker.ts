@@ -1,55 +1,54 @@
 import { assertEquals } from "https://deno.land/std@0.158.0/testing/asserts.ts";
 import { FingerprintTree } from "../src/fingerprint_tree.ts";
-import { testMonoid } from "../src/lifting_monoid.ts";
+import { xxHash32XorMonoid } from "../src/lifting_monoid.ts";
 import { MessageBroker } from "../src/message_broker.ts";
-import { testConfig } from "../src/message_broker_config.ts";
+import { uint8TestConfig } from "../src/message_broker_config.ts";
+import { sync } from "../src/util.ts";
 
-function multiplyElements(elements: string[], by: number): string[] {
-  const acc = [];
+//const logMsgRounds = false;
 
-  for (const element of elements) {
-    acc.push(element);
+function makeSet(size: number): number[] {
+  const set = new Set<number>();
 
-    for (let i = 2; i <= by; i++) {
-      acc.push(element + i);
-    }
+  for (let i = 0; i < size; i++) {
+    const int = Math.floor(Math.random() * ((size * 2) - 1 + 1) + 1);
+
+    set.add(int);
   }
 
-  return acc;
+  return Array.from(set);
 }
+
+const size = 100000;
 
 // Set up peer
 
-const treeA = new FingerprintTree(testMonoid);
+console.log("Generating sets...");
 
-const setA = [
-  "eel",
-  "bee",
-  "fox",
-  "hog",
-  "cat",
-  "ape",
-  "gnu",
-];
+const setA = makeSet(size);
+const setB = makeSet(size);
+
+const treeA = new FingerprintTree(xxHash32XorMonoid);
+
+console.log("Inserting into tree a...");
+
+const encoder = new TextEncoder();
 
 for (const item of setA) {
-  treeA.insert(item);
+  treeA.insert(encoder.encode(`${item}`));
 }
 
-const brokerA = new MessageBroker(treeA, testConfig, false);
+console.log("Inserting into tree b...");
 
 // Other peer
 
-const treeB = new FingerprintTree(testMonoid);
-
-const setB = ["doe", "doe2", "fox", "fox2"];
+const treeB = new FingerprintTree(xxHash32XorMonoid);
 
 for (const item of setB) {
-  treeB.insert(item);
+  treeB.insert(encoder.encode(`${item}`));
 }
 
-const brokerB = new MessageBroker(treeB, testConfig, true);
-
+/*
 const aLog: string[] = [];
 const bLog: string[] = [];
 
@@ -63,15 +62,17 @@ const printerA = new TransformStream<string>({
     if (message.includes("TERMINAL")) {
       aLogs.push(aLog.splice(0, aLog.length));
 
-      console.group("%c A", "color: red");
+      if (logMsgRounds) {
+        console.group("%c A", "color: red");
 
-      const logs = aLogs[aLogs.length - 1];
+        const logs = aLogs[aLogs.length - 1];
 
-      for (const log of logs) {
-        console.log(`%c ${log}`, "color: red");
+        for (const log of logs) {
+          console.log(`%c ${log}`, "color: red");
+        }
+
+        console.groupEnd();
       }
-
-      console.groupEnd();
     }
 
     controller.enqueue(message);
@@ -85,21 +86,24 @@ const printerB = new TransformStream<string>({
     if (message.includes("TERMINAL")) {
       bLogs.push(bLog.splice(0, bLog.length));
 
-      console.group("%c B", "color: blue");
+      if (logMsgRounds) {
+        console.group("%c B", "color: blue");
 
-      const logs = bLogs[bLogs.length - 1];
+        const logs = bLogs[bLogs.length - 1];
 
-      for (const log of logs) {
-        console.log(`%c ${log}`, "color: blue");
+        for (const log of logs) {
+          console.log(`%c ${log}`, "color: blue");
+        }
+
+        console.groupEnd();
       }
-
-      console.groupEnd();
     }
 
     controller.enqueue(message);
   },
 });
 
+/*
 console.group("%c A has:", "color: red");
 console.log(`%c ${Array.from(treeA.lnrValues())}`, "color: red");
 console.groupEnd();
@@ -107,15 +111,23 @@ console.groupEnd();
 console.group("%c B has:", "color: blue");
 console.log(`%c ${Array.from(treeB.lnrValues())}`, "color: blue");
 console.groupEnd();
+*/
 
-brokerB.readable
-  .pipeThrough(printerB)
-  .pipeThrough(brokerA)
-  .pipeThrough(printerA)
-  .pipeTo(brokerB.writable);
+console.log("Syncing...");
 
-await Promise.all([brokerA.isDone(), brokerB.isDone()]);
+const brokerA = new MessageBroker(
+  treeA,
+  uint8TestConfig,
+);
 
+const brokerB = new MessageBroker(
+  treeB,
+  uint8TestConfig,
+);
+
+await sync(brokerA, brokerB);
+
+/*
 console.group("%c A has:", "color: red");
 console.log(`%c ${Array.from(treeA.lnrValues())}`, "color: red");
 console.groupEnd();
@@ -123,5 +135,8 @@ console.groupEnd();
 console.group("%c B has:", "color: blue");
 console.log(`%c ${Array.from(treeB.lnrValues())}`, "color: blue");
 console.groupEnd();
+*/
 
 assertEquals(Array.from(treeA.lnrValues()), Array.from(treeB.lnrValues()));
+
+console.log("Done");
