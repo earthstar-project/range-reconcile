@@ -19,6 +19,8 @@ export function sync2<E, V, L>(
     transform(message, controller) {
       aLog.push(message as string);
 
+      //console.log("a", message);
+
       if ((message as string).includes("TERMINAL")) {
         aLogs.push(aLog.splice(0, aLog.length));
 
@@ -42,6 +44,8 @@ export function sync2<E, V, L>(
   const printerB = new TransformStream<E>({
     transform(message, controller) {
       bLog.push(message as string);
+
+      //console.log("b", message);
 
       if ((message as string).includes("TERMINAL")) {
         bLogs.push(bLog.splice(0, bLog.length));
@@ -108,15 +112,27 @@ export function sync3<E, V, L>(
 
   const initialMessages = a.initialEvents();
 
-  const aIsDone = a.isDone();
-  const bIsDone = b.isDone();
+  let aIsDone = false;
+  let bIsDone = false;
+
+  a.isDone().then(() => {
+    aIsDone = true;
+  });
+  b.isDone().then(() => {
+    bIsDone = true;
+  });
 
   const queue = (broker: "a" | "b", msg: E) => {
     const queueToUse = broker === "a" ? msgsForA : msgsForB;
     const brokerToUse = broker === "a" ? a : b;
+    const isDoneToUse = broker === "a" ? aIsDone : bIsDone;
 
     queueToUse.push(() => {
       const responses = brokerToUse.respond(msg);
+
+      if (isDoneToUse) {
+        return;
+      }
 
       for (const response of responses) {
         queue(broker === "a" ? "b" : "a", response);
@@ -128,6 +144,6 @@ export function sync3<E, V, L>(
     queue("b", msg);
   }
 
-  return Promise.all([aIsDone, bIsDone]);
+  return Promise.all([a.isDone(), b.isDone()]);
 }
 //

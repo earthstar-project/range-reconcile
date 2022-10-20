@@ -3,7 +3,7 @@ import { FingerprintTree } from "../src/fingerprint_tree.ts";
 import { testMonoid, xxHash32XorMonoid } from "../src/lifting_monoid.ts";
 import { MessageBroker } from "../src/message_broker.ts";
 import { testConfig, uint8TestConfig } from "../src/message_broker_config.ts";
-import { sync3 } from "../src/util.ts";
+import { sync2, sync3 } from "../src/util.ts";
 
 //const logMsgRounds = false;
 
@@ -19,7 +19,7 @@ function makeSet(size: number): number[] {
   return Array.from(set);
 }
 
-const size = 1000;
+const size = 100000;
 
 // Set up peer
 
@@ -75,6 +75,7 @@ const brokerB = new MessageBroker(
 
 await sync3(brokerA, brokerB);
 
+/*
 console.group("%c A has:", "color: red");
 console.log(`%c ${Array.from(treeA.lnrValues())}`, "color: red");
 console.groupEnd();
@@ -82,6 +83,7 @@ console.groupEnd();
 console.group("%c B has:", "color: blue");
 console.log(`%c ${Array.from(treeB.lnrValues())}`, "color: blue");
 console.groupEnd();
+*/
 
 assertEquals(Array.from(treeA.lnrValues()), Array.from(treeB.lnrValues()));
 

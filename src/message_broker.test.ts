@@ -3,7 +3,7 @@ import { FingerprintTree } from "../src/fingerprint_tree.ts";
 import { testMonoid } from "../src/lifting_monoid.ts";
 import { MessageBroker } from "../src/message_broker.ts";
 import { testConfig } from "../src/message_broker_config.ts";
-import { sync2, sync3 } from "./util.ts";
+import {  sync3 } from "./util.ts";
 
 function multiplyElements(elements: string[], by: number): string[] {
   const acc = [];
@@ -61,39 +61,9 @@ async function createTestCase() {
 
   const brokerB = new MessageBroker(treeB, testConfig);
 
-  const aLog: string[] = [];
-  const bLog: string[] = [];
-
-  const aLogs: string[][] = [];
-  const bLogs: string[][] = [];
-
-  const printerA = new TransformStream<string>({
-    transform(message, controller) {
-      if (debugLive) {
-        console.log("A", message);
-      }
-
-      aLog.push(message);
-
-      if (message.includes("TERMINAL")) {
-        aLogs.push(aLog.splice(0, aLog.length));
-      }
-
-      controller.enqueue(message);
-    },
-  });
-
   await sync3(brokerA, brokerB);
 
-  const log: string[][] = [];
-
-  for (let i = 0; i < Math.max(aLogs.length, bLogs.length); i++) {
-    log.push(bLogs[i]);
-    log.push(aLogs[i]);
-  }
-
   return {
-    log,
     setA: Array.from(treeA.lnrValues()),
     setB: Array.from(treeB.lnrValues()),
     ogA: setA,
@@ -103,7 +73,7 @@ async function createTestCase() {
 
 Deno.test("Message broker (fuzz)", async () => {
   for (let i = 0; i < 1000; i++) {
-    const { log, setA, setB, ogA, ogB } = await createTestCase();
+    const { setA, setB, ogA, ogB } = await createTestCase();
 
     try {
       assertEquals(setA, setB);
@@ -111,17 +81,6 @@ Deno.test("Message broker (fuzz)", async () => {
       if (debugLog) {
         console.log("Set A:", ogA);
         console.log("Set B:", ogB);
-
-        for (let i = 0; i < log.length; i++) {
-          console.group(i % 2 === 0 ? "B" : "A");
-
-          const maybeLog = log[i];
-
-          for (const msg of maybeLog || []) {
-            console.log(msg);
-          }
-          console.groupEnd();
-        }
       }
     }
 

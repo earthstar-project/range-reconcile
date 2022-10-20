@@ -90,7 +90,7 @@ export class MessageBroker<E, V, L> {
   isDoneSoFar = true;
   isReallyDone = false;
 
-  respond(message: E): Iterable<E> {
+  respond(message: E): Array<E> {
     const { tree, config } = this;
 
     //  In the first stage, we decode the incoming messages and give each a lower bound using the upper bound of the message which came before it.
@@ -103,7 +103,7 @@ export class MessageBroker<E, V, L> {
       return this.lowerBoundFromPrev;
     };
 
-    function* decode(message: E): Iterable<DecodeStageResult<V, L>> {
+    function decode(message: E): DecodeStageResult<V, L> {
       const lowerBoundMsg = config.decode.lowerBound(message);
 
       const lowerBound = getLowerBound();
@@ -112,76 +112,70 @@ export class MessageBroker<E, V, L> {
         setLowerBound(lowerBoundMsg);
 
         // Stop processing of this message here, we no longer need it.
-        yield ({
+        return ({
           "type": "lowerBound",
           value: lowerBoundMsg,
         });
-
-        return;
       }
 
       const terminalMsg = config.decode.terminal(message);
 
       if (terminalMsg) {
-        yield ({ "type": "terminal" });
-        return;
+        return ({ "type": "terminal" });
       }
 
       const rangeDoneUpperBound = config.decode.done(message);
 
       if (rangeDoneUpperBound !== false) {
-        yield ({
+        setLowerBound(rangeDoneUpperBound);
+
+        return ({
           lowerBound: lowerBound,
           type: "done",
           upperBound: rangeDoneUpperBound,
         });
-
-        setLowerBound(rangeDoneUpperBound);
-        return;
       }
 
       const fingerprintMsg = config.decode.fingerprint(message);
 
       if (fingerprintMsg) {
-        yield ({
+        setLowerBound(fingerprintMsg.upperBound);
+        return ({
           "type": "fingerprint",
           lowerBound: lowerBound,
           fingerprint: fingerprintMsg.fingerprint,
           upperBound: fingerprintMsg.upperBound,
         });
-
-        setLowerBound(fingerprintMsg.upperBound);
-        return;
       }
 
       const payloadMsg = config.decode.payload(message);
 
       if (payloadMsg) {
-        yield ({
+        if (payloadMsg.end) {
+          setLowerBound(payloadMsg.end.upperBound);
+        }
+
+        return ({
           "type": "payload",
           lowerBound: lowerBound,
           "payload": payloadMsg.value,
           ...(payloadMsg.end ? { end: payloadMsg.end } : {}),
         });
-
-        if (payloadMsg.end) {
-          setLowerBound(payloadMsg.end.upperBound);
-        }
-        return;
       }
 
       const emptyPayloadMsg = config.decode.emptyPayload(message);
 
       if (emptyPayloadMsg) {
-        yield ({
+        setLowerBound(emptyPayloadMsg);
+
+        return ({
           lowerBound: lowerBound,
           "type": "emptyPayload",
           upperBound: emptyPayloadMsg,
         });
-
-        setLowerBound(emptyPayloadMsg);
-        return;
       }
+
+      return null as never;
     }
 
     // In the second stage of the pipeline we need to consolidate all payload messages into a single message with all items included.
@@ -199,9 +193,9 @@ export class MessageBroker<E, V, L> {
 
     const getCollatedPayload = () => this.collatedPayload;
 
-    function* collatePayloadsStage(
+    function collatePayloadsStage(
       decoded: DecodeStageResult<V, L>,
-    ): Iterable<CollateStageResult<V, L>> {
+    ): CollateStageResult<V, L> | undefined {
       {
         switch (decoded.type) {
           case "payload": {
@@ -221,8 +215,8 @@ export class MessageBroker<E, V, L> {
 
             if (decoded.end) {
               nextPayload.end = decoded.end;
-              yield (nextPayload);
               setCollatedPayload(null);
+              return (nextPayload);
             }
 
             break;
@@ -233,7 +227,7 @@ export class MessageBroker<E, V, L> {
               setCollatedPayload(null);
             }
 
-            yield (decoded);
+            return (decoded);
           }
         }
       }
@@ -245,9 +239,9 @@ export class MessageBroker<E, V, L> {
       this.reusableTree = tree || undefined;
     };
 
-    function* process(
+    function process(
       result: CollateStageResult<V, L>,
-    ): Iterable<ProcessStageResult<V, L>> {
+    ): ProcessStageResult<V, L>[] {
       const treeToUse = getReusableTree();
 
       switch (result.type) {
@@ -255,8 +249,7 @@ export class MessageBroker<E, V, L> {
         case "terminal":
         case "done":
           setReusableTree(null);
-          yield (result);
-          break;
+          return [result];
 
         case "fingerprint": {
           // If the fingerprint is not neutral, compare it with our own fingeprint of this range.
@@ -270,30 +263,31 @@ export class MessageBroker<E, V, L> {
 
           // If the fingeprints match, we've reconciled this range. Hooray!
           if (fingerprint === result.fingerprint) {
-            yield ({
+            return [{
               "type": "done",
               upperBound: result.upperBound,
-            });
-            break;
+            }];
           }
 
           // If it doesn't, check how many items are in the non-matching range...
           // TODO: make k configurable.
-          const k = 1;
+          const k = 8;
 
           if (size <= k) {
             // If we have zero items in this range,
             //  Send an empty payload
             if (size === 0) {
-              yield ({
+              return [{
                 type: "emptyPayload",
                 upperBound: result.upperBound,
-              });
+              }];
             }
 
             // Otherwise, send a payload for each item here.
+            const acc: ProcessStageResult<V, L>[] = [];
+
             for (let i = 0; i < size; i++) {
-              yield ({
+              acc.push({
                 type: "payload",
                 payload: items[i],
                 ...(i === items.length - 1
@@ -303,6 +297,8 @@ export class MessageBroker<E, V, L> {
                   : {}),
               });
             }
+
+            return acc;
           } else {
             // If we have more than k items, we want to divide the range into b parts.
             // TODO: make b configurable
@@ -324,13 +320,15 @@ export class MessageBroker<E, V, L> {
               }
             }
 
-            const b = 2;
+            const b = 16;
 
             const chunkSize = Math.ceil(size / b);
 
             if (chunkSize <= k) {
+              const acc: ProcessStageResult<V, L>[] = [];
+
               for (let i = 0; i < size; i++) {
-                yield ({
+                acc.push({
                   type: "payload",
 
                   payload: itemsToUse[i],
@@ -345,10 +343,12 @@ export class MessageBroker<E, V, L> {
                 });
               }
 
-              break;
+              return acc;
             }
 
             let reusableTreeForChunks = undefined;
+
+            const acc: ProcessStageResult<V, L>[] = [];
 
             for (let i = 0; i < size; i += chunkSize) {
               const rangeBeginning = itemsToUse[i];
@@ -365,18 +365,23 @@ export class MessageBroker<E, V, L> {
                 ? undefined
                 : nextTree || undefined;
 
-              yield ({
+              acc.push({
                 type: "fingerprint",
                 fingerprint: chunkFingerprint,
                 upperBound: rangeEnd,
               });
             }
-          }
 
-          break;
+            return acc;
+          }
         }
 
         case "payload": {
+          // add all items in the payload to the tree
+          for (const payloadItem of result.payload) {
+            tree.insert(payloadItem);
+          }
+
           // If we can respond, send back payloads for everything in this range we have.
           if (result.end.canRespond) {
             const { items, size, nextTree } = tree.getFingerprint(
@@ -388,14 +393,16 @@ export class MessageBroker<E, V, L> {
             setReusableTree(nextTree);
 
             if (size === 0) {
-              yield ({
+              return [{
                 type: "emptyPayload",
                 upperBound: result.end.upperBound,
-              });
+              }];
             }
 
+            const acc: ProcessStageResult<V, L>[] = [];
+
             for (let i = 0; i < size; i++) {
-              yield ({
+              acc.push({
                 type: "payload",
                 payload: items[i],
                 ...(i === items.length - 1
@@ -408,22 +415,17 @@ export class MessageBroker<E, V, L> {
                   : {}),
               });
             }
+
+            return acc;
           } else {
             // Or are we done here...
             setReusableTree(null);
 
-            yield ({
+            return [{
               type: "done",
               upperBound: result.end.upperBound,
-            });
+            }];
           }
-
-          // add all items in the payload to the tree
-          for (const payloadItem of result.payload) {
-            tree.insert(payloadItem);
-          }
-
-          break;
         }
 
         case "emptyPayload": {
@@ -439,11 +441,13 @@ export class MessageBroker<E, V, L> {
 
           if (size === 0) {
             setReusableTree(null);
-            break;
+            return [];
           }
 
+          const acc: ProcessStageResult<V, L>[] = [];
+
           for (let i = 0; i < size; i++) {
-            yield ({
+            acc.push({
               type: "payload",
               payload: items[i],
               ...(i === items.length - 1
@@ -457,7 +461,7 @@ export class MessageBroker<E, V, L> {
             });
           }
 
-          break;
+          return acc;
         }
       }
     }
@@ -468,9 +472,9 @@ export class MessageBroker<E, V, L> {
 
     const getLastDoneUpperBound = () => this.lastDoneUpperBound;
 
-    function* consolidateAdjacentDoneStage(
+    function consolidateAdjacentDoneStage(
       result: ProcessStageResult<V, L>,
-    ): Iterable<ProcessStageResult<V, L>> {
+    ): ProcessStageResult<V, L>[] | undefined {
       switch (result.type) {
         case "done": {
           setLastDoneUpperBound(result.upperBound);
@@ -482,15 +486,14 @@ export class MessageBroker<E, V, L> {
           const lastDoneUpperBound = getLastDoneUpperBound();
 
           if (lastDoneUpperBound) {
-            yield ({
+            setLastDoneUpperBound(null);
+            return [{
               "type": "done",
               upperBound: lastDoneUpperBound,
-            });
-
-            setLastDoneUpperBound(null);
+            }, result];
           }
 
-          yield (result);
+          return [result];
         }
       }
     }
@@ -511,13 +514,9 @@ export class MessageBroker<E, V, L> {
 
     const isDoneTee = this.isDoneTee;
 
-    function* isDoneStage(message: DecodeStageResult<V, L>): Iterable<
-      DecodeStageResult<V, L>
-    > {
-      if (!getIsReallyDone()) {
-        yield (message);
-      }
-
+    function isDoneStage(
+      message: ProcessStageResult<V, L>,
+    ): void {
       switch (message.type) {
         case "lowerBound":
           setIsDoneSoFar(true);
@@ -545,7 +544,7 @@ export class MessageBroker<E, V, L> {
 
     // In the sixth stage af the pipeline we encode the messages.
 
-    function* encodeStage(message: ProcessStageResult<V, L>): Iterable<E> {
+    function encodeStage(message: ProcessStageResult<V, L>): E {
       let encoded: E;
 
       switch (message.type) {
@@ -579,18 +578,40 @@ export class MessageBroker<E, V, L> {
         }
       }
 
-      yield (encoded);
+      return (encoded);
     }
 
-    const pipeline = new MessagePipeline([message])
-      .pipeThrough(decode)
-      .pipeThrough(isDoneStage)
-      .pipeThrough(collatePayloadsStage)
-      .pipeThrough(process)
-      .pipeThrough(consolidateAdjacentDoneStage)
-      .pipeThrough(encodeStage);
+    const decoded = decode(message);
 
-    return pipeline.iterable;
+    const collated = collatePayloadsStage(decoded);
+
+    if (collated === undefined) {
+      return [];
+    }
+
+    const processed = process(collated || []);
+
+    const consolidated: ProcessStageResult<V, L>[] = [];
+
+    for (const item of processed) {
+      const res = consolidateAdjacentDoneStage(item);
+
+      if (res) {
+        consolidated.push(...res);
+      }
+    }
+
+    for (const item of consolidated) {
+      isDoneStage(item);
+    }
+
+    const encoded: E[] = [];
+
+    for (const item of consolidated) {
+      encoded.push(encodeStage(item));
+    }
+
+    return encoded;
   }
 
   isDone() {
@@ -686,27 +707,5 @@ export class MessageBroker<E, V, L> {
     }
 
     return initiatingElements();
-  }
-}
-
-class MessagePipeline<I> {
-  iterable: Iterable<I>;
-
-  constructor(i: Iterable<I>) {
-    this.iterable = i;
-  }
-
-  pipeThrough<O>(processor: (i: I) => Iterable<O>): MessagePipeline<O> {
-    const iterable = this.iterable;
-
-    function* nextIterator() {
-      for (const item of iterable) {
-        for (const result of processor(item)) {
-          yield result;
-        }
-      }
-    }
-
-    return new MessagePipeline(nextIterator());
   }
 }

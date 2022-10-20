@@ -1,4 +1,2 @@
-- [ ] Set up benchmarks for monoids
-- [ ] Set up tests for monoids (associativity, identity)
 - [ ] Make b and k of MessageBroker configurable
 - [ ] Create comparative benchmarks for syncing with changing b / k

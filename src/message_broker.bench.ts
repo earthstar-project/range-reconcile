@@ -1,7 +1,8 @@
+import { assertEquals } from "https://deno.land/std@0.158.0/testing/asserts.ts";
 import { FingerprintTree } from "../src/fingerprint_tree.ts";
-import { xxHash32XorMonoid } from "../src/lifting_monoid.ts";
+import { testMonoid, xxHash32XorMonoid } from "../src/lifting_monoid.ts";
 import { MessageBroker } from "../src/message_broker.ts";
-import { uint8TestConfig } from "../src/message_broker_config.ts";
+import { testConfig, uint8TestConfig } from "../src/message_broker_config.ts";
 import { sync3 } from "./util.ts";
 
 function makeSet(size: number): number[] {
@@ -18,45 +19,48 @@ function makeSet(size: number): number[] {
 
 const sizes = [10, 100, 1000, 10000];
 
-const encoder = new TextEncoder();
-
 for (const size of sizes) {
-  Deno.bench(`Instantiate two sets (size ${size})`, () => {
-    const treeA = new FingerprintTree(xxHash32XorMonoid);
+  const setA = makeSet(size);
+  const setB = makeSet(size);
 
-    for (const item of makeSet(size)) {
-      treeA.insert(encoder.encode(`${item}`));
+  Deno.bench(`Instantiate two sets (size ${size})`, () => {
+    const treeA = new FingerprintTree(testMonoid);
+
+    for (const item of setA) {
+      treeA.insert(`${item}`);
     }
 
-    const treeB = new FingerprintTree(xxHash32XorMonoid);
+    const treeB = new FingerprintTree(testMonoid);
 
-    for (const item of makeSet(size)) {
-      treeB.insert(encoder.encode(`${item}`));
+    for (const item of setB) {
+      treeB.insert(`${item}`);
     }
   });
 
   Deno.bench(`Instantiate and sync two sets (size ${size})`, async () => {
-    const treeA = new FingerprintTree(xxHash32XorMonoid);
+    const treeA = new FingerprintTree(testMonoid);
 
-    for (const item of makeSet(size)) {
-      treeA.insert(encoder.encode(`${item}`));
+    for (const item of setA) {
+      treeA.insert(`${item}`);
     }
 
-    const treeB = new FingerprintTree(xxHash32XorMonoid);
+    const treeB = new FingerprintTree(testMonoid);
 
-    for (const item of makeSet(size)) {
-      treeB.insert(encoder.encode(`${item}`));
+    for (const item of setB) {
+      treeB.insert(`${item}`);
     }
 
     const brokerA = new MessageBroker(
-      treeB,
-      uint8TestConfig,
+      treeA,
+      testConfig,
     );
     const brokerB = new MessageBroker(
       treeB,
-      uint8TestConfig,
+      testConfig,
     );
 
     await sync3(brokerA, brokerB);
+
+    // assertEquals(Array.from(treeA.lnrValues()), Array.from(treeB.lnrValues()));
   });
 }
