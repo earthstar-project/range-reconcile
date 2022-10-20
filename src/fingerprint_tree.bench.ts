@@ -20,6 +20,9 @@ const encoder = new TextEncoder();
 
 for (const size of sizes) {
   const set = makeSet(size);
+
+  console.log(set.length);
+
   const tree = new FingerprintTree(xxHash32XorMonoid);
   const rbTree = new RedBlackTree();
 

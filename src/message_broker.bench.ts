@@ -1,9 +1,8 @@
-import { Deferred } from "https://deno.land/std@0.158.0/async/deferred.ts";
 import { FingerprintTree } from "../src/fingerprint_tree.ts";
 import { xxHash32XorMonoid } from "../src/lifting_monoid.ts";
 import { MessageBroker } from "../src/message_broker.ts";
 import { uint8TestConfig } from "../src/message_broker_config.ts";
-import { sync } from "./util.ts";
+import { sync3 } from "./util.ts";
 
 function makeSet(size: number): number[] {
   const set = new Set<number>();
@@ -58,6 +57,6 @@ for (const size of sizes) {
       uint8TestConfig,
     );
 
-    await sync(brokerA, brokerB);
+    await sync3(brokerA, brokerB);
   });
 }

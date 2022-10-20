@@ -78,16 +78,38 @@ export class MessageBroker<E, V, L> {
     this.config = config;
   }
 
-  process(incoming: AsyncIterable<E>): AsyncIterable<E> {
+  lowerBoundFromPrev: V = null as V;
+  collatedPayload: {
+    lowerBound: V;
+    type: "payload";
+    payload: V[];
+    end: { canRespond: boolean; upperBound: V };
+  } | null = null;
+  reusableTree: NodeType<V, L> | undefined = undefined;
+  lastDoneUpperBound: V | null = null;
+  isDoneSoFar = true;
+  isReallyDone = false;
+
+  respond(message: E): Iterable<E> {
     const { tree, config } = this;
 
-    let lowerBoundDecode: V;
+    //  In the first stage, we decode the incoming messages and give each a lower bound using the upper bound of the message which came before it.
+
+    const setLowerBound = (bound: V) => {
+      this.lowerBoundFromPrev = bound;
+    };
+
+    const getLowerBound = () => {
+      return this.lowerBoundFromPrev;
+    };
 
     function* decode(message: E): Iterable<DecodeStageResult<V, L>> {
       const lowerBoundMsg = config.decode.lowerBound(message);
 
+      const lowerBound = getLowerBound();
+
       if (lowerBoundMsg) {
-        lowerBoundDecode = lowerBoundMsg;
+        setLowerBound(lowerBoundMsg);
 
         // Stop processing of this message here, we no longer need it.
         yield ({
@@ -109,11 +131,12 @@ export class MessageBroker<E, V, L> {
 
       if (rangeDoneUpperBound !== false) {
         yield ({
-          lowerBound: lowerBoundDecode,
+          lowerBound: lowerBound,
           type: "done",
           upperBound: rangeDoneUpperBound,
         });
-        lowerBoundDecode = rangeDoneUpperBound;
+
+        setLowerBound(rangeDoneUpperBound);
         return;
       }
 
@@ -122,11 +145,12 @@ export class MessageBroker<E, V, L> {
       if (fingerprintMsg) {
         yield ({
           "type": "fingerprint",
-          lowerBound: lowerBoundDecode,
+          lowerBound: lowerBound,
           fingerprint: fingerprintMsg.fingerprint,
           upperBound: fingerprintMsg.upperBound,
         });
-        lowerBoundDecode = fingerprintMsg.upperBound;
+
+        setLowerBound(fingerprintMsg.upperBound);
         return;
       }
 
@@ -135,13 +159,13 @@ export class MessageBroker<E, V, L> {
       if (payloadMsg) {
         yield ({
           "type": "payload",
-          lowerBound: lowerBoundDecode,
+          lowerBound: lowerBound,
           "payload": payloadMsg.value,
           ...(payloadMsg.end ? { end: payloadMsg.end } : {}),
         });
 
         if (payloadMsg.end) {
-          lowerBoundDecode = payloadMsg.end.upperBound;
+          setLowerBound(payloadMsg.end.upperBound);
         }
         return;
       }
@@ -150,24 +174,30 @@ export class MessageBroker<E, V, L> {
 
       if (emptyPayloadMsg) {
         yield ({
-          lowerBound: lowerBoundDecode,
+          lowerBound: lowerBound,
           "type": "emptyPayload",
           upperBound: emptyPayloadMsg,
         });
 
-        lowerBoundDecode = emptyPayloadMsg;
+        setLowerBound(emptyPayloadMsg);
         return;
       }
     }
 
     // In the second stage of the pipeline we need to consolidate all payload messages into a single message with all items included.
 
-    let collatedPayload: {
-      lowerBound: V;
-      type: "payload";
-      payload: V[];
-      end: { canRespond: boolean; upperBound: V };
-    } | null = null;
+    const setCollatedPayload = (
+      payload: {
+        lowerBound: V;
+        type: "payload";
+        payload: V[];
+        end: { canRespond: boolean; upperBound: V };
+      } | null,
+    ) => {
+      this.collatedPayload = payload;
+    };
+
+    const getCollatedPayload = () => this.collatedPayload;
 
     function* collatePayloadsStage(
       decoded: DecodeStageResult<V, L>,
@@ -175,8 +205,10 @@ export class MessageBroker<E, V, L> {
       {
         switch (decoded.type) {
           case "payload": {
-            if (collatedPayload === null) {
-              collatedPayload = {
+            let nextPayload = getCollatedPayload();
+
+            if (nextPayload === null) {
+              nextPayload = {
                 type: "payload",
                 lowerBound: decoded.lowerBound,
                 payload: [],
@@ -184,20 +216,21 @@ export class MessageBroker<E, V, L> {
               };
             }
 
-            collatedPayload.payload.push(decoded.payload);
+            nextPayload.payload.push(decoded.payload);
+            setCollatedPayload(nextPayload);
 
             if (decoded.end) {
-              collatedPayload.end = decoded.end;
-              yield (collatedPayload);
-              collatedPayload = null;
+              nextPayload.end = decoded.end;
+              yield (nextPayload);
+              setCollatedPayload(null);
             }
 
             break;
           }
           default: {
-            if (collatedPayload) {
+            if (getCollatedPayload()) {
               // This shouldn't happen.
-              collatedPayload = null;
+              setCollatedPayload(null);
             }
 
             yield (decoded);
@@ -207,16 +240,21 @@ export class MessageBroker<E, V, L> {
     }
 
     // In the third stage of the pipeline we formulate our response to these messages, as well as perform tree insertions.
-    let reusableTree: NodeType<V, L> | undefined = undefined;
+    const getReusableTree = () => this.reusableTree;
+    const setReusableTree = (tree: NodeType<V, L> | null) => {
+      this.reusableTree = tree || undefined;
+    };
 
     function* process(
       result: CollateStageResult<V, L>,
     ): Iterable<ProcessStageResult<V, L>> {
+      const treeToUse = getReusableTree();
+
       switch (result.type) {
         case "lowerBound":
         case "terminal":
         case "done":
-          reusableTree = undefined;
+          setReusableTree(null);
           yield (result);
           break;
 
@@ -225,10 +263,10 @@ export class MessageBroker<E, V, L> {
           const { fingerprint, size, items, nextTree } = tree.getFingerprint(
             result.lowerBound,
             result.upperBound,
-            reusableTree,
+            treeToUse,
           );
 
-          reusableTree = nextTree || undefined;
+          setReusableTree(nextTree);
 
           // If the fingeprints match, we've reconciled this range. Hooray!
           if (fingerprint === result.fingerprint) {
@@ -241,7 +279,7 @@ export class MessageBroker<E, V, L> {
 
           // If it doesn't, check how many items are in the non-matching range...
           // TODO: make k configurable.
-          const k = 4;
+          const k = 1;
 
           if (size <= k) {
             // If we have zero items in this range,
@@ -286,7 +324,7 @@ export class MessageBroker<E, V, L> {
               }
             }
 
-            const b = 8;
+            const b = 2;
 
             const chunkSize = Math.ceil(size / b);
 
@@ -344,10 +382,10 @@ export class MessageBroker<E, V, L> {
             const { items, size, nextTree } = tree.getFingerprint(
               result.lowerBound,
               result.end.upperBound,
-              reusableTree,
+              treeToUse,
             );
 
-            reusableTree = nextTree || undefined;
+            setReusableTree(nextTree);
 
             if (size === 0) {
               yield ({
@@ -372,7 +410,7 @@ export class MessageBroker<E, V, L> {
             }
           } else {
             // Or are we done here...
-            reusableTree = undefined;
+            setReusableTree(null);
 
             yield ({
               type: "done",
@@ -389,18 +427,18 @@ export class MessageBroker<E, V, L> {
         }
 
         case "emptyPayload": {
-          reusableTree = undefined;
+          setReusableTree(null);
 
           const { items, size, nextTree } = tree.getFingerprint(
             result.lowerBound,
             result.upperBound,
-            reusableTree,
+            //treeToUse,
           );
 
-          reusableTree = nextTree || undefined;
+          setReusableTree(nextTree);
 
           if (size === 0) {
-            reusableTree = undefined;
+            setReusableTree(null);
             break;
           }
 
@@ -424,27 +462,32 @@ export class MessageBroker<E, V, L> {
       }
     }
 
-    // In the fourth stage of the pipeline we consolidate adjacent done ranges together
-    let lastDoneUpperBound: V | null = null;
+    const setLastDoneUpperBound = (bound: V | null) => {
+      this.lastDoneUpperBound = bound;
+    };
+
+    const getLastDoneUpperBound = () => this.lastDoneUpperBound;
 
     function* consolidateAdjacentDoneStage(
       result: ProcessStageResult<V, L>,
     ): Iterable<ProcessStageResult<V, L>> {
       switch (result.type) {
         case "done": {
-          lastDoneUpperBound = result.upperBound;
+          setLastDoneUpperBound(result.upperBound);
 
           break;
         }
 
         default: {
+          const lastDoneUpperBound = getLastDoneUpperBound();
+
           if (lastDoneUpperBound) {
             yield ({
               "type": "done",
               upperBound: lastDoneUpperBound,
             });
 
-            lastDoneUpperBound = null;
+            setLastDoneUpperBound(null);
           }
 
           yield (result);
@@ -454,38 +497,48 @@ export class MessageBroker<E, V, L> {
 
     // In the fifth stage we check if all messages are pretty much done.
 
-    let isDoneSoFar = true;
-    let isReallyDone = false;
+    const setIsReallyDone = (isDone: boolean) => {
+      this.isReallyDone = isDone;
+    };
+
+    const getIsReallyDone = () => this.isReallyDone;
+
+    const setIsDoneSoFar = (isDone: boolean) => {
+      this.isDoneSoFar = isDone;
+    };
+
+    const getIsDoneSoFar = () => this.isDoneSoFar;
+
     const isDoneTee = this.isDoneTee;
 
     function* isDoneStage(message: DecodeStageResult<V, L>): Iterable<
       DecodeStageResult<V, L>
     > {
-      if (!isReallyDone) {
+      if (!getIsReallyDone()) {
         yield (message);
       }
 
       switch (message.type) {
         case "lowerBound":
-          isDoneSoFar = true;
+          setIsDoneSoFar(true);
           break;
         case "fingerprint":
-          isDoneSoFar = false;
+          setIsDoneSoFar(false);
           break;
         case "emptyPayload":
-          isDoneSoFar = false;
+          setIsDoneSoFar(false);
           break;
         case "payload":
           if (message.end?.canRespond === true) {
-            isDoneSoFar = false;
+            setIsDoneSoFar(false);
           }
           break;
         case "terminal":
-          if (isDoneSoFar) {
-            isReallyDone = true;
+          if (getIsDoneSoFar()) {
+            setIsReallyDone(true);
             isDoneTee.resolve();
           } else {
-            isDoneSoFar = true;
+            setIsDoneSoFar(true);
           }
       }
     }
@@ -529,7 +582,7 @@ export class MessageBroker<E, V, L> {
       yield (encoded);
     }
 
-    const pipeline = new AsyncPipeline(incoming)
+    const pipeline = new MessagePipeline([message])
       .pipeThrough(decode)
       .pipeThrough(isDoneStage)
       .pipeThrough(collatePayloadsStage)
@@ -636,24 +689,24 @@ export class MessageBroker<E, V, L> {
   }
 }
 
-class AsyncPipeline<I> {
-  iterable: AsyncIterable<I>;
+class MessagePipeline<I> {
+  iterable: Iterable<I>;
 
-  constructor(i: AsyncIterable<I>) {
+  constructor(i: Iterable<I>) {
     this.iterable = i;
   }
 
-  pipeThrough<O>(processor: (i: I) => Iterable<O>): AsyncPipeline<O> {
+  pipeThrough<O>(processor: (i: I) => Iterable<O>): MessagePipeline<O> {
     const iterable = this.iterable;
 
-    async function* nextIterator() {
-      for await (const item of iterable) {
+    function* nextIterator() {
+      for (const item of iterable) {
         for (const result of processor(item)) {
           yield result;
         }
       }
     }
 
-    return new AsyncPipeline(nextIterator());
+    return new MessagePipeline(nextIterator());
   }
 }

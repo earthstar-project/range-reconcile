@@ -1,10 +1,9 @@
-import { deferred } from "https://deno.land/std@0.158.0/async/deferred.ts";
 import { assertEquals } from "https://deno.land/std@0.158.0/testing/asserts.ts";
 import { FingerprintTree } from "../src/fingerprint_tree.ts";
 import { testMonoid } from "../src/lifting_monoid.ts";
 import { MessageBroker } from "../src/message_broker.ts";
 import { testConfig } from "../src/message_broker_config.ts";
-import { sync } from "./util.ts";
+import { sync2, sync3 } from "./util.ts";
 
 function multiplyElements(elements: string[], by: number): string[] {
   const acc = [];
@@ -84,7 +83,7 @@ async function createTestCase() {
     },
   });
 
-  await sync(brokerA, brokerB);
+  await sync3(brokerA, brokerB);
 
   const log: string[][] = [];
 
@@ -130,5 +129,5 @@ Deno.test("Message broker (fuzz)", async () => {
   }
 });
 
-const debugLog = false;
+const debugLog = true;
 const debugLive = false;
