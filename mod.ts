@@ -8,7 +8,7 @@
  *
  * Reconciliation can be conducted locally or over a network.
  * This library does not have any opinion on message encoding or transport. Users provide these details themselves.
- * Currently the FingerprintTrees are persisted only in memory.
+ * Currently the FingerprintTrees are only persisted in memory.
  *
  * @module
  */

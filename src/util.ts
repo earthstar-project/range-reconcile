@@ -10,7 +10,7 @@ export async function sync<E, V, L>(
 ): Promise<void> {
   const msgs: E[] = [];
 
-  const messagesToProcess = messages || from.initialEvents();
+  const messagesToProcess = messages || from.initialMessages();
 
   for await (
     const msg of messagesToProcess

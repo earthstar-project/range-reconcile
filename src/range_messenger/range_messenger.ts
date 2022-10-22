@@ -607,7 +607,7 @@ export class RangeMessenger<EncodedMessageType, ValueType, LiftedType> {
   }
 
   /** Returns the opening messages for initiating an exchange between two peers. */
-  initialEvents(): Iterable<EncodedMessageType> {
+  initialMessages(): Iterable<EncodedMessageType> {
     const { tree, config } = this;
 
     function* initiatingElements(): Iterable<EncodedMessageType> {

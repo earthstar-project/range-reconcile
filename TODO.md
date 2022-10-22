@@ -1,2 +1,0 @@
-- [ ] Make b and k of MessageBroker configurable
-- [ ] Create comparative benchmarks for syncing with changing b / k
