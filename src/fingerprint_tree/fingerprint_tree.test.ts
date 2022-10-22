@@ -1,5 +1,5 @@
 import { assertEquals } from "https://deno.land/std@0.158.0/testing/asserts.ts";
-import { testMonoid } from "./lifting_monoid.ts";
+import { concatMonoid } from "../lifting_monoid.ts";
 import { FingerprintTree } from "./fingerprint_tree.ts";
 
 type RangeVector = [[string, string], string, number, string[]];
@@ -21,7 +21,7 @@ const rangeVectors: RangeVector[] = [
 
 Deno.test("FingerprintTree", () => {
   const tree = new FingerprintTree(
-    testMonoid,
+    concatMonoid,
   );
 
   const set = ["a", "b", "c", "d", "e", "f", "g"];

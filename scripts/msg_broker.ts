@@ -1,9 +1,9 @@
 import { assertEquals } from "https://deno.land/std@0.158.0/testing/asserts.ts";
-import { FingerprintTree } from "../src/fingerprint_tree.ts";
-import { testMonoid, xxHash32XorMonoid } from "../src/lifting_monoid.ts";
+import { FingerprintTree } from "../src/fingerprint_tree/fingerprint_tree.ts";
+import { concatMonoid, xxHash32XorMonoid } from "../src/lifting_monoid.ts";
 import { MessageBroker } from "../src/message_broker.ts";
 import { testConfig, uint8TestConfig } from "../src/message_broker_config.ts";
-import { sync2, sync3 } from "../src/util.ts";
+import { sync } from "../src/util.ts";
 
 //const logMsgRounds = false;
 
@@ -35,7 +35,7 @@ const setB = makeSet(size);
 console.log(setA.length);
 console.log(setB.length);
 
-const treeA = new FingerprintTree(testMonoid);
+const treeA = new FingerprintTree(concatMonoid);
 
 console.log("Inserting into tree a...");
 
@@ -47,7 +47,7 @@ console.log("Inserting into tree b...");
 
 // Other peer
 
-const treeB = new FingerprintTree(testMonoid);
+const treeB = new FingerprintTree(concatMonoid);
 
 for (const item of setB) {
   treeB.insert(`${item}`);
@@ -73,7 +73,7 @@ const brokerB = new MessageBroker(
   testConfig,
 );
 
-await sync3(brokerA, brokerB);
+await sync(brokerA, brokerB);
 
 /*
 console.group("%c A has:", "color: red");

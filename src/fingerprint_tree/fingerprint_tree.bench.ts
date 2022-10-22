@@ -1,6 +1,6 @@
 import { RedBlackTree } from "https://deno.land/std@0.158.0/collections/red_black_tree.ts";
 import { FingerprintTree } from "./fingerprint_tree.ts";
-import { xxHash32XorMonoid } from "./lifting_monoid.ts";
+import { concatMonoid } from "../lifting_monoid.ts";
 
 function makeSet(size: number): number[] {
   const set = new Set<number>();
@@ -14,16 +14,14 @@ function makeSet(size: number): number[] {
   return Array.from(set);
 }
 
-const sizes = [10, 100, 1000, 10000, 100000];
-
-const encoder = new TextEncoder();
+const sizes = [1, 10, 100, 1000, 10000, 100000];
 
 for (const size of sizes) {
   const set = makeSet(size);
 
   console.log(set.length);
 
-  const tree = new FingerprintTree(xxHash32XorMonoid);
+  const tree = new FingerprintTree(concatMonoid);
   const rbTree = new RedBlackTree();
 
   Deno.bench(`Insert into RedBlackTree (${size} items)`, {
@@ -39,13 +37,12 @@ for (const size of sizes) {
     group: `insert (${size})`,
   }, () => {
     for (const element of set) {
-      tree.insert(encoder.encode(`${element}`));
+      tree.insert(`${element}`);
     }
   });
 
-  const min = encoder.encode(`${Math.min(...set)}`);
-  const max = encoder.encode(`${Math.max(...set)}`);
-  const mid = encoder.encode(`${Math.floor(Math.max(...set) / 2)}`);
+  const min = `${Math.min(...set)}`;
+  const mid = `${Math.floor(Math.max(...set) / 2)}`;
 
   Deno.bench(`Fingerprint min - min (${size} items) `, {
     group: `fingerprint (${size})`,

@@ -3,10 +3,11 @@ import {
   Direction,
   RedBlackNode,
 } from "https://deno.land/std@0.158.0/collections/red_black_node.ts";
-import { combineMonoid, LiftingMonoid, sizeMonoid } from "./lifting_monoid.ts";
+import { combineMonoid, LiftingMonoid, sizeMonoid } from "../lifting_monoid.ts";
 
 const debug = false;
 
+/** A node for a FingerprintTree, augmented with a label and lifted value. Can update the labelsk of its ancestors. */
 export class FingerprintNode<
   ValueType = string,
   LiftType = string,
@@ -84,24 +85,28 @@ export class FingerprintNode<
 export type NodeType<V, L> = FingerprintNode<V, [L, [number, V[]]]>;
 type CombinedLabel<V, L> = [L, [number, V[]]];
 
-export class FingerprintTree<V, L> extends RedBlackTree<V> {
+/** A self-balancing tree which can return fingerprints for ranges of items it holds using a provided monoid. */
+export class FingerprintTree<ValueType, LiftedType>
+  extends RedBlackTree<ValueType> {
   declare protected root:
-    | NodeType<V, L>
+    | NodeType<ValueType, LiftedType>
     | null;
 
-  monoid: LiftingMonoid<V, [L, [number, V[]]]>;
+  monoid: LiftingMonoid<ValueType, [LiftedType, [number, ValueType[]]]>;
 
   constructor(
-    monoid: LiftingMonoid<V, L>,
-    compare?: (a: V, b: V) => number,
+    /** The lifting monoid which is used to label nodes and derive fingerprints from ranges. */
+    monoid: LiftingMonoid<ValueType, LiftedType>,
+    /** A function to sort values by. Will use JavaScript's default comparison if not provided. */
+    compare?: (a: ValueType, b: ValueType) => number,
   ) {
     super(compare);
 
     this.monoid = combineMonoid(
       monoid,
       combineMonoid(sizeMonoid, {
-        lift: (v: V) => [v],
-        combine: (a: V[], b: V[]) => {
+        lift: (v: ValueType) => [v],
+        combine: (a: ValueType[], b: ValueType[]) => {
           return a.concat(b);
         },
         neutral: [],
@@ -109,19 +114,17 @@ export class FingerprintTree<V, L> extends RedBlackTree<V> {
     );
   }
 
-  getFullRange(): { x: V; y: V } {
+  /** Return the lowest value within this tree. Useful for constructing the maximum range of the tree, which will be [x, x) where x is the result of this function. */
+  getLowestValue(): ValueType {
     if (!this.root) {
       throw new Error("Can't get a range from a tree with no items");
     }
 
-    return {
-      x: this.root.findMinNode().value,
-      y: this.root.findMaxNode().value,
-    };
+    return this.root.findMinNode().value;
   }
 
   rotateNode(
-    node: NodeType<V, L>,
+    node: NodeType<ValueType, LiftedType>,
     direction: Direction,
   ) {
     const replacementDirection: Direction = direction === "left"
@@ -135,7 +138,8 @@ export class FingerprintTree<V, L> extends RedBlackTree<V> {
 
     if (debug) console.group("Rotating", direction);
 
-    const replacement: NodeType<V, L> = node[replacementDirection]!;
+    const replacement: NodeType<ValueType, LiftedType> =
+      node[replacementDirection]!;
     node[replacementDirection] = replacement[direction] ?? null;
 
     // if the replacement has a node in the rotation direction
@@ -171,15 +175,16 @@ export class FingerprintTree<V, L> extends RedBlackTree<V> {
   }
 
   removeFixup(
-    parent: NodeType<V, L> | null,
-    current: NodeType<V, L> | null,
+    parent: NodeType<ValueType, LiftedType> | null,
+    current: NodeType<ValueType, LiftedType> | null,
   ) {
     while (parent && !current?.red) {
       const direction: Direction = parent.left === current ? "left" : "right";
       const siblingDirection: Direction = direction === "right"
         ? "left"
         : "right";
-      let sibling: NodeType<V, L> | null = parent[siblingDirection];
+      let sibling: NodeType<ValueType, LiftedType> | null =
+        parent[siblingDirection];
 
       if (sibling?.red) {
         sibling.red = false;
@@ -212,14 +217,14 @@ export class FingerprintTree<V, L> extends RedBlackTree<V> {
   }
 
   private insertFingerprintNode(
-    value: V,
-  ): NodeType<V, L> | null {
+    value: ValueType,
+  ): NodeType<ValueType, LiftedType> | null {
     if (!this.root) {
       this.root = new FingerprintNode(null, value, this.monoid);
       this._size++;
       return this.root;
     } else {
-      let node: NodeType<V, L> = this.root;
+      let node: NodeType<ValueType, LiftedType> = this.root;
       while (true) {
         const order: number = this.compare(value, node.value);
 
@@ -238,7 +243,8 @@ export class FingerprintTree<V, L> extends RedBlackTree<V> {
     return null;
   }
 
-  insert(value: V): boolean {
+  /** Insert a value into the tree. Will create a lifted value for the resulting node, and update the labels of all rotated and parent nodes in the tree. */
+  insert(value: ValueType): boolean {
     const originalNode = this.insertFingerprintNode(
       value,
     );
@@ -247,7 +253,7 @@ export class FingerprintTree<V, L> extends RedBlackTree<V> {
 
     if (node) {
       while (node.parent?.red) {
-        let parent: NodeType<V, L> = node
+        let parent: NodeType<ValueType, LiftedType> = node
           .parent!;
         const parentDirection: Direction = parent.directionFromParent()!;
         const uncleDirection: Direction = parentDirection === "right"
@@ -256,7 +262,7 @@ export class FingerprintTree<V, L> extends RedBlackTree<V> {
 
         // The uncle is the sibling on the same side of the parent's parent.
         const uncle:
-          | NodeType<V, L>
+          | NodeType<ValueType, LiftedType>
           | null = parent.parent![uncleDirection] ??
             null;
 
@@ -288,10 +294,11 @@ export class FingerprintTree<V, L> extends RedBlackTree<V> {
     return !!node;
   }
 
-  override remove(value: V): boolean {
+  /** Remove a value frem the tree. Will recalculate labels for all rotated and parent nodes. */
+  override remove(value: ValueType): boolean {
     const node = this.removeNode(
       value,
-    ) as (NodeType<V, L> | null);
+    ) as (NodeType<ValueType, LiftedType> | null);
 
     if (node && !node.red) {
       this.removeFixup(node.parent, node.left ?? node.right);
@@ -304,11 +311,20 @@ export class FingerprintTree<V, L> extends RedBlackTree<V> {
     return !!node;
   }
 
-  getFingerprint(x: V, y: V, nextTree?: NodeType<V, L>): {
-    fingerprint: L;
+  /** Calculates a fingerprint of items within the given range, inclusive of xx and exclusive of y. Also returns the size of the range, the items contained within it, */
+  getFingerprint(
+    x: ValueType,
+    y: ValueType,
+    nextTree?: NodeType<ValueType, LiftedType>,
+  ): {
+    /** The fingeprint of this range. */
+    fingerprint: LiftedType;
+    /** The size of the range. */
     size: number;
-    items: V[];
-    nextTree: NodeType<V, L> | null;
+    /** The items within this range. */
+    items: ValueType[];
+    /** A tree to be used for a subsequent call of `getFingerprint`, where the given y param for the previous call is the x param for the next one. */
+    nextTree: NodeType<ValueType, LiftedType> | null;
   } {
     if (this.root === null) {
       return {
@@ -321,7 +337,7 @@ export class FingerprintTree<V, L> extends RedBlackTree<V> {
 
     const nodeToPass = nextTree || this.findGteNode(
       x,
-    ) as NodeType<V, L>;
+    ) as NodeType<ValueType, LiftedType>;
 
     const order = this.compare(x, y);
 
@@ -372,7 +388,7 @@ export class FingerprintTree<V, L> extends RedBlackTree<V> {
       }
 
       const { label: label2, nextTree } = this.aggregateUntil(
-        minNode as NodeType<V, L>,
+        minNode as NodeType<ValueType, LiftedType>,
         minNode.value,
         y,
       );
@@ -388,10 +404,11 @@ export class FingerprintTree<V, L> extends RedBlackTree<V> {
     }
   }
 
+  /** Find the first node holding a value greater than or equal to the given value. */
   private findGteNode(
-    value: V,
-  ): NodeType<V, L> | null {
-    let node: NodeType<V, L> | null = this.root;
+    value: ValueType,
+  ): NodeType<ValueType, LiftedType> | null {
+    let node: NodeType<ValueType, LiftedType> | null = this.root;
     while (node) {
       const order: number = this.compare(value, node.value);
       if (order === 0) break;
@@ -407,12 +424,12 @@ export class FingerprintTree<V, L> extends RedBlackTree<V> {
   }
 
   private aggregateUntil(
-    node: NodeType<V, L>,
-    x: V,
-    y: V,
+    node: NodeType<ValueType, LiftedType>,
+    x: ValueType,
+    y: ValueType,
   ): {
-    label: CombinedLabel<V, L>;
-    nextTree: NodeType<V, L> | null;
+    label: CombinedLabel<ValueType, LiftedType>;
+    nextTree: NodeType<ValueType, LiftedType> | null;
   } {
     const { label, nextTree } = this.aggregateUp(node, x, y);
 
@@ -428,14 +445,14 @@ export class FingerprintTree<V, L> extends RedBlackTree<V> {
   }
 
   private aggregateUp(
-    node: NodeType<V, L>,
-    x: V,
-    y: V,
+    node: NodeType<ValueType, LiftedType>,
+    x: ValueType,
+    y: ValueType,
   ): {
-    label: CombinedLabel<V, L>;
-    nextTree: NodeType<V, L> | null;
+    label: CombinedLabel<ValueType, LiftedType>;
+    nextTree: NodeType<ValueType, LiftedType> | null;
   } {
-    let acc: CombinedLabel<V, L> = this.monoid.neutral;
+    let acc: CombinedLabel<ValueType, LiftedType> = this.monoid.neutral;
     let tree = node;
 
     while (tree.findMaxNode().value < y) {
@@ -460,12 +477,12 @@ export class FingerprintTree<V, L> extends RedBlackTree<V> {
   }
 
   private aggregateDown(
-    node: NodeType<V, L> | null,
-    y: V,
-    acc: CombinedLabel<V, L>,
+    node: NodeType<ValueType, LiftedType> | null,
+    y: ValueType,
+    acc: CombinedLabel<ValueType, LiftedType>,
   ): {
-    label: CombinedLabel<V, L>;
-    nextTree: NodeType<V, L> | null;
+    label: CombinedLabel<ValueType, LiftedType>;
+    nextTree: NodeType<ValueType, LiftedType> | null;
   } {
     let tree = node;
     let acc2 = acc;

@@ -1,9 +1,4 @@
-import {
-  decode,
-  encode,
-} from "https://deno.land/std@0.158.0/encoding/base64.ts";
-
-export type MessageBrokerConfig<EncodedType, ValueType, LiftType> = {
+export type RangeMessengerConfig<EncodedType, ValueType, LiftType> = {
   encode: {
     lowerBound: (value: ValueType) => EncodedType;
     payload: (
@@ -37,7 +32,116 @@ export type MessageBrokerConfig<EncodedType, ValueType, LiftType> = {
   };
 };
 
-export const testConfig: MessageBrokerConfig<string, string, string> = {
+type ObjEncoding<V, L> =
+  | {
+    type: "lowerBound";
+    value: V;
+  }
+  | {
+    type: "payload";
+    payload: V;
+    end?: { canRespond: boolean; upperBound: V };
+  }
+  | {
+    type: "emptyPayload";
+    upperBound: V;
+  }
+  | {
+    type: "fingerprint";
+    fingerprint: L;
+    upperBound: V;
+  }
+  | { type: "done"; upperBound: V }
+  | { type: "terminal" };
+
+export const objConfig: RangeMessengerConfig<
+  ObjEncoding<string, string>,
+  string,
+  string
+> = {
+  encode: {
+    lowerBound: (x) => ({
+      type: "lowerBound",
+      value: x,
+    }),
+    payload: (v, end) => ({
+      type: "payload",
+      payload: v,
+      ...(end ? { end } : {}),
+    }),
+    emptyPayload: (upperBound) => ({
+      type: "emptyPayload",
+      upperBound,
+    }),
+    done: (y) => ({
+      type: "done",
+      upperBound: y,
+    }),
+    fingerprint: (fp, y) => ({
+      type: "fingerprint",
+      fingerprint: fp,
+      upperBound: y,
+    }),
+    terminal: () => ({
+      type: "terminal",
+    }),
+  },
+  decode: {
+    lowerBound: (obj) => {
+      if (obj.type === "lowerBound") {
+        return obj.value;
+      }
+
+      return false;
+    },
+
+    payload: (obj) => {
+      if (obj.type === "payload") {
+        return {
+          value: obj.payload,
+          ...(obj.end ? { end: obj.end } : {}),
+        };
+      }
+
+      return false;
+    },
+
+    emptyPayload: (obj) => {
+      if (obj.type === "emptyPayload") {
+        return obj.upperBound;
+      }
+
+      return false;
+    },
+
+    done: (obj) => {
+      if (obj.type === "done") {
+        return obj.upperBound;
+      }
+
+      return false;
+    },
+    fingerprint: (obj) => {
+      if (obj.type === "fingerprint") {
+        return {
+          fingerprint: obj.fingerprint,
+          upperBound: obj.upperBound,
+        };
+      }
+
+      return false;
+    },
+    terminal: (obj) => {
+      if (obj.type === "terminal") {
+        return true;
+      }
+
+      return false;
+    },
+  },
+};
+
+export const jsonConfig: RangeMessengerConfig<string, string, string> = {
   encode: {
     lowerBound: (x) =>
       JSON.stringify({
@@ -121,125 +225,6 @@ export const testConfig: MessageBrokerConfig<string, string, string> = {
         return {
           fingerprint: parsed["fingerprint"],
           upperBound: parsed["y"],
-        };
-      }
-
-      return false;
-    },
-    terminal: (json) => {
-      const parsed = JSON.parse(json);
-
-      if (parsed["msg"] === "TERMINAL") {
-        return true;
-      }
-
-      return false;
-    },
-  },
-};
-
-export const uint8TestConfig: MessageBrokerConfig<
-  string,
-  Uint8Array,
-  Uint8Array
-> = {
-  encode: {
-    lowerBound: (x) =>
-      JSON.stringify({
-        msg: "LOWER",
-        x: encode(x),
-      }),
-    payload: (v, end) =>
-      JSON.stringify({
-        msg: "PAYLOAD",
-        payload: encode(v),
-        ...(end
-          ? {
-            end: {
-              canRespond: end.canRespond,
-              upperBound: encode(end.upperBound),
-            },
-          }
-          : {}),
-      }),
-    emptyPayload: (upperBound) =>
-      JSON.stringify({
-        msg: "EMPTY_PAYLOAD",
-        upperBound: encode(upperBound),
-      }),
-    done: (y) =>
-      JSON.stringify({
-        msg: "DONE",
-        y: encode(y),
-      }),
-    fingerprint: (fp, y) =>
-      JSON.stringify({
-        msg: "FINGERPRINT",
-        fingerprint: encode(fp),
-        y: encode(y),
-      }),
-    terminal: () =>
-      JSON.stringify({
-        msg: "TERMINAL",
-      }),
-  },
-  decode: {
-    lowerBound: (json) => {
-      const parsed = JSON.parse(json);
-
-      if (parsed["msg"] === "LOWER") {
-        return decode(parsed["x"]);
-      }
-
-      return false;
-    },
-
-    payload: (json) => {
-      const parsed = JSON.parse(json);
-
-      if (parsed["msg"] === "PAYLOAD") {
-        return {
-          value: decode(parsed["payload"]),
-          ...(parsed["end"]
-            ? {
-              end: {
-                canRespond: parsed["end"]["canRespond"],
-                upperBound: decode(parsed["end"]["upperBound"]),
-              },
-            }
-            : {}),
-        };
-      }
-
-      return false;
-    },
-
-    emptyPayload: (json) => {
-      const parsed = JSON.parse(json);
-
-      if (parsed["msg"] === "EMPTY_PAYLOAD") {
-        return decode(parsed["upperBound"]);
-      }
-
-      return false;
-    },
-
-    done: (json) => {
-      const parsed = JSON.parse(json);
-
-      if (parsed["msg"] === "DONE") {
-        return decode(parsed["y"]);
-      }
-
-      return false;
-    },
-    fingerprint: (json) => {
-      const parsed = JSON.parse(json);
-
-      if (parsed["msg"] === "FINGERPRINT") {
-        return {
-          fingerprint: decode(parsed["fingerprint"]),
-          upperBound: decode(parsed["y"]),
         };
       }
 

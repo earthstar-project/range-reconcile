@@ -1,9 +1,9 @@
 import { assertEquals } from "https://deno.land/std@0.158.0/testing/asserts.ts";
-import { FingerprintTree } from "../src/fingerprint_tree.ts";
-import { testMonoid } from "../src/lifting_monoid.ts";
-import { MessageBroker } from "../src/message_broker.ts";
-import { testConfig } from "../src/message_broker_config.ts";
-import {  sync3 } from "./util.ts";
+import { FingerprintTree } from "../fingerprint_tree/fingerprint_tree.ts";
+import { concatMonoid } from "../lifting_monoid.ts";
+import { RangeMessenger } from "./range_messenger.ts";
+import { objConfig } from "./range_messenger_config.ts";
+import { sync } from "../util.ts";
 
 function multiplyElements(elements: string[], by: number): string[] {
   const acc = [];
@@ -39,7 +39,7 @@ function createTestSet() {
 }
 
 async function createTestCase() {
-  const treeA = new FingerprintTree(testMonoid);
+  const treeA = new FingerprintTree(concatMonoid);
 
   const setA = createTestSet();
 
@@ -47,11 +47,11 @@ async function createTestCase() {
     treeA.insert(item);
   }
 
-  const brokerA = new MessageBroker(treeA, testConfig);
+  const brokerA = new RangeMessenger(treeA, objConfig);
 
   // Other peer
 
-  const treeB = new FingerprintTree(testMonoid);
+  const treeB = new FingerprintTree(concatMonoid);
 
   const setB = createTestSet();
 
@@ -59,9 +59,9 @@ async function createTestCase() {
     treeB.insert(item);
   }
 
-  const brokerB = new MessageBroker(treeB, testConfig);
+  const brokerB = new RangeMessenger(treeB, objConfig);
 
-  await sync3(brokerA, brokerB);
+  await sync(brokerA, brokerB);
 
   return {
     setA: Array.from(treeA.lnrValues()),
@@ -89,4 +89,3 @@ Deno.test("Message broker (fuzz)", async () => {
 });
 
 const debugLog = true;
-const debugLive = false;

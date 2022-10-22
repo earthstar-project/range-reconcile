@@ -9,6 +9,7 @@ export type LiftingMonoid<ValueType, LiftedType> = {
   neutral: LiftedType;
 };
 
+/** Combine two lifting monoids into a new one. */
 export function combineMonoid<V, AL, BL>(
   a: LiftingMonoid<V, AL>,
   b: LiftingMonoid<V, BL>,
@@ -27,9 +28,8 @@ export function combineMonoid<V, AL, BL>(
   };
 }
 
-//
-
-export const testMonoid: LiftingMonoid<string, string> = {
+/** A monoid which lifts the member as a string, and combines by concatenating together. */
+export const concatMonoid: LiftingMonoid<string, string> = {
   lift: (a: string) => a,
   combine: (a: string, b: string) => {
     const fst = a === "0" ? "" : a;
@@ -40,12 +40,14 @@ export const testMonoid: LiftingMonoid<string, string> = {
   neutral: "0",
 };
 
+/** A monoid which lifts the member as 1, and combines by adding together. */
 export const sizeMonoid: LiftingMonoid<unknown, number> = {
   lift: (_a: unknown) => 1,
   combine: (a: number, b: number) => a + b,
   neutral: 0,
 };
 
+/** A monoid which lifts using xxHash32, and combines the resulting hash using a bitwise XOR.*/
 export const xxHash32XorMonoid: LiftingMonoid<Uint8Array, Uint8Array> = {
   lift: (v: Uint8Array) => {
     const hash = xxHash32(v).toString(16);

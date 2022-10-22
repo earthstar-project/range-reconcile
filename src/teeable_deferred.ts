@@ -3,7 +3,8 @@ import {
   deferred,
 } from "https://deno.land/std@0.158.0/async/deferred.ts";
 
-export class DeferredTee<ReturnType> {
+/** A promise which can be teed off into more promises which will resolve when the original does. */
+export class TeeableDeferred<ReturnType> {
   private deferreds = new Set<Deferred<ReturnType>>();
   state: Deferred<void>["state"] = "pending";
 
