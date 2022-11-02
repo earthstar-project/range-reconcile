@@ -84,12 +84,15 @@ export class RangeMessenger<EncodedMessageType, ValueType, LiftedType> {
   >;
   private isDoneTee = new TeeableDeferred();
   private insertionCallbacks = new Set<(v: ValueType) => void>();
+  private fingerprintEqual: (a: LiftedType, b: LiftedType) => boolean;
 
   constructor(
     tree: FingerprintTree<ValueType, LiftedType>,
+    fingerprintEqual: (a: LiftedType, b: LiftedType) => boolean,
     config: RangeMessengerConfig<EncodedMessageType, ValueType, LiftedType>,
   ) {
     this.tree = tree;
+    this.fingerprintEqual = fingerprintEqual;
     this.config = config;
   }
 
@@ -318,7 +321,7 @@ export class RangeMessenger<EncodedMessageType, ValueType, LiftedType> {
         this.setReusableTree(nextTree);
 
         // If the fingeprints match, we've reconciled this range. Hooray!
-        if (fingerprint === result.fingerprint) {
+        if (this.fingerprintEqual(fingerprint, result.fingerprint)) {
           return [{
             "type": "done",
             upperBound: result.upperBound,

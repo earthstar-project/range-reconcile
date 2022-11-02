@@ -18,6 +18,10 @@ function makeSet(size: number): number[] {
 
 const sizes = [10, 100, 1000, 2500, 5000, 10000];
 
+function nativeEquals(a: string, b: string) {
+  return a === b;
+}
+
 for (const size of sizes) {
   const setA = makeSet(size);
   const setB = makeSet(size);
@@ -51,10 +55,12 @@ for (const size of sizes) {
 
     const messengerA = new RangeMessenger(
       treeA,
+      nativeEquals,
       objConfig,
     );
     const messengerB = new RangeMessenger(
       treeB,
+      nativeEquals,
       objConfig,
     );
 

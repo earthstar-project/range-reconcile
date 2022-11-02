@@ -455,8 +455,8 @@ export class FingerprintTree<ValueType, LiftedType>
     let acc: CombinedLabel<ValueType, LiftedType> = this.monoid.neutral;
     let tree = node;
 
-    while (tree.findMaxNode().value < y) {
-      if (tree.value >= x) {
+    while (this.compare(tree.findMaxNode().value, y) < 0) {
+      if (this.compare(tree.value, x) >= 0) {
         acc = this.monoid.combine(
           acc,
           this.monoid.combine(
@@ -488,7 +488,7 @@ export class FingerprintTree<ValueType, LiftedType>
     let acc2 = acc;
 
     while (tree !== null) {
-      if (tree.value < y) {
+      if (this.compare(tree.value, y) < 0) {
         acc2 = this.monoid.combine(
           acc2,
           this.monoid.combine(
@@ -498,7 +498,9 @@ export class FingerprintTree<ValueType, LiftedType>
         );
 
         tree = tree.right;
-      } else if (tree.left === null || tree.left.findMaxNode().value < y) {
+      } else if (
+        tree.left === null || this.compare(tree.left.findMaxNode().value, y) < 0
+      ) {
         return {
           label: this.monoid.combine(
             acc2,

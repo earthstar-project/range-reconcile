@@ -40,6 +40,10 @@ function createTestSet() {
   return multiplyElements(acc, Math.floor(Math.random() * 4) + 1);
 }
 
+function nativeEquals(a: string, b: string) {
+  return a === b;
+}
+
 async function createTestCase() {
   const treeA = new FingerprintTree(concatMonoid);
 
@@ -49,7 +53,7 @@ async function createTestCase() {
     treeA.insert(item);
   }
 
-  const brokerA = new RangeMessenger(treeA, objConfig);
+  const brokerA = new RangeMessenger(treeA, nativeEquals, objConfig);
 
   // Other peer
 
@@ -61,7 +65,7 @@ async function createTestCase() {
     treeB.insert(item);
   }
 
-  const brokerB = new RangeMessenger(treeB, objConfig);
+  const brokerB = new RangeMessenger(treeB, nativeEquals, objConfig);
 
   await sync(brokerA, brokerB);
 
