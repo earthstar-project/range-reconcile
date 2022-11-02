@@ -15,5 +15,6 @@
 
 export * from "./src/fingerprint_tree/fingerprint_tree.ts";
 export * from "./src/range_messenger/range_messenger.ts";
+export * from "./src/range_messenger/range_messenger_config.ts";
 export * from "./src/lifting_monoid.ts";
 export * from "./src/util.ts";

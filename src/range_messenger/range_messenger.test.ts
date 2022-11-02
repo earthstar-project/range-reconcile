@@ -22,17 +22,19 @@ function multiplyElements(elements: string[], by: number): string[] {
 const elements = ["ape", "bee", "cat", "doe", "eel", "fox", "gnu", "hog"];
 
 function createTestSet() {
-  const baseCount = Math.floor(Math.random() * 8) + 1;
+  const baseCount = Math.floor(Math.random() * 8);
 
   const acc: string[] = [];
   const remaining = elements.slice();
 
-  for (let i = 0; i <= baseCount; i++) {
-    const index = Math.floor(
-      Math.random() * remaining.length,
-    );
+  if (baseCount > 0) {
+    for (let i = 0; i <= baseCount; i++) {
+      const index = Math.floor(
+        Math.random() * remaining.length,
+      );
 
-    acc.push(...remaining.splice(index, 1));
+      acc.push(...remaining.splice(index, 1));
+    }
   }
 
   return multiplyElements(acc, Math.floor(Math.random() * 4) + 1);

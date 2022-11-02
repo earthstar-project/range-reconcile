@@ -1,5 +1,6 @@
 export type RangeMessengerConfig<EncodedType, ValueType, LiftType> = {
   encode: {
+    emptySet: (canRespond: boolean) => EncodedType;
     lowerBound: (value: ValueType) => EncodedType;
     payload: (
       value: ValueType,
@@ -14,25 +15,30 @@ export type RangeMessengerConfig<EncodedType, ValueType, LiftType> = {
     terminal: () => EncodedType;
   };
   decode: {
-    lowerBound: (message: EncodedType) => ValueType | false;
+    emptySet: (message: EncodedType) => boolean;
+    lowerBound: (message: EncodedType) => ValueType;
     payload: (
       message: EncodedType,
     ) => {
       value: ValueType;
       end?: { canRespond: boolean; upperBound: ValueType };
-    } | false;
+    };
     /** Returns the upper bound of the message */
-    emptyPayload: (message: EncodedType) => ValueType | false;
+    emptyPayload: (message: EncodedType) => ValueType;
     /** Returns the upper bound of the message */
-    done: (message: EncodedType) => ValueType | false;
+    done: (message: EncodedType) => ValueType;
     fingerprint: (
       message: EncodedType,
-    ) => { fingerprint: LiftType; upperBound: ValueType } | false;
-    terminal: (e: EncodedType) => boolean;
+    ) => { fingerprint: LiftType; upperBound: ValueType };
+    terminal: (e: EncodedType) => true;
   };
 };
 
 type ObjEncoding<V, L> =
+  | {
+    type: "emptySet";
+    canRespond: boolean;
+  }
   | {
     type: "lowerBound";
     value: V;
@@ -60,6 +66,10 @@ export const objConfig: RangeMessengerConfig<
   string
 > = {
   encode: {
+    emptySet: (canRespond) => ({
+      type: "emptySet",
+      canRespond,
+    }),
     lowerBound: (x) => ({
       type: "lowerBound",
       value: x,
@@ -87,12 +97,19 @@ export const objConfig: RangeMessengerConfig<
     }),
   },
   decode: {
+    emptySet: (obj) => {
+      if (obj.type === "emptySet") {
+        return obj.canRespond;
+      }
+
+      throw "Couldn't decode";
+    },
     lowerBound: (obj) => {
       if (obj.type === "lowerBound") {
         return obj.value;
       }
 
-      return false;
+      throw "Couldn't decode";
     },
 
     payload: (obj) => {
@@ -103,7 +120,7 @@ export const objConfig: RangeMessengerConfig<
         };
       }
 
-      return false;
+      throw "Couldn't decode";
     },
 
     emptyPayload: (obj) => {
@@ -111,7 +128,7 @@ export const objConfig: RangeMessengerConfig<
         return obj.upperBound;
       }
 
-      return false;
+      throw "Couldn't decode";
     },
 
     done: (obj) => {
@@ -119,7 +136,7 @@ export const objConfig: RangeMessengerConfig<
         return obj.upperBound;
       }
 
-      return false;
+      throw "Couldn't decode";
     },
     fingerprint: (obj) => {
       if (obj.type === "fingerprint") {
@@ -129,18 +146,19 @@ export const objConfig: RangeMessengerConfig<
         };
       }
 
-      return false;
+      throw "Couldn't decode";
     },
     terminal: (obj) => {
       if (obj.type === "terminal") {
         return true;
       }
 
-      return false;
+      throw "Couldn't decode";
     },
   },
 };
 
+/*
 export const jsonConfig: RangeMessengerConfig<string, string, string> = {
   encode: {
     lowerBound: (x) =>
@@ -241,3 +259,4 @@ export const jsonConfig: RangeMessengerConfig<string, string, string> = {
     },
   },
 };
+*/

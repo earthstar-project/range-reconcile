@@ -7,6 +7,10 @@ import { RangeMessengerConfig } from "./range_messenger_config.ts";
 
 type DecodeStageResult<V, L> =
   | {
+    type: "emptySet";
+    canRespond: boolean;
+  }
+  | {
     type: "lowerBound";
     value: V;
   }
@@ -46,6 +50,10 @@ type CollateStageResult<V, L> =
 
 type ProcessStageResult<V, L> =
   | {
+    type: "emptySet";
+    canRespond: false;
+  }
+  | {
     type: "lowerBound";
     value: V;
   }
@@ -75,6 +83,7 @@ export class RangeMessenger<EncodedMessageType, ValueType, LiftedType> {
     LiftedType
   >;
   private isDoneTee = new TeeableDeferred();
+  private insertionCallbacks = new Set<(v: ValueType) => void>();
 
   constructor(
     tree: FingerprintTree<ValueType, LiftedType>,
@@ -91,11 +100,22 @@ export class RangeMessenger<EncodedMessageType, ValueType, LiftedType> {
   private decode(
     message: EncodedMessageType,
   ): DecodeStageResult<ValueType, LiftedType> {
-    const lowerBoundMsg = this.config.decode.lowerBound(message);
-
     const lowerBound = this.lowerBoundFromPrev;
 
-    if (lowerBoundMsg) {
+    try {
+      const canRespond = this.config.decode.emptySet(message);
+
+      return ({
+        type: "emptySet",
+        canRespond,
+      });
+    } catch {
+      // Not an empty set message.
+    }
+
+    try {
+      const lowerBoundMsg = this.config.decode.lowerBound(message);
+
       this.lowerBoundFromPrev = lowerBoundMsg;
 
       // Stop processing of this message here, we no longer need it.
@@ -103,17 +123,20 @@ export class RangeMessenger<EncodedMessageType, ValueType, LiftedType> {
         "type": "lowerBound",
         value: lowerBoundMsg,
       });
+    } catch {
+      // Not a lower bound message.
     }
 
-    const terminalMsg = this.config.decode.terminal(message);
-
-    if (terminalMsg) {
+    try {
+      this.config.decode.terminal(message);
       return ({ "type": "terminal" });
+    } catch {
+      // Not a terminal message
     }
 
-    const rangeDoneUpperBound = this.config.decode.done(message);
+    try {
+      const rangeDoneUpperBound = this.config.decode.done(message);
 
-    if (rangeDoneUpperBound !== false) {
       this.lowerBoundFromPrev = rangeDoneUpperBound;
 
       return ({
@@ -121,11 +144,13 @@ export class RangeMessenger<EncodedMessageType, ValueType, LiftedType> {
         type: "done",
         upperBound: rangeDoneUpperBound,
       });
+    } catch {
+      // Not a done message
     }
 
-    const fingerprintMsg = this.config.decode.fingerprint(message);
+    try {
+      const fingerprintMsg = this.config.decode.fingerprint(message);
 
-    if (fingerprintMsg) {
       this.lowerBoundFromPrev = fingerprintMsg.upperBound;
       return ({
         "type": "fingerprint",
@@ -133,11 +158,13 @@ export class RangeMessenger<EncodedMessageType, ValueType, LiftedType> {
         fingerprint: fingerprintMsg.fingerprint,
         upperBound: fingerprintMsg.upperBound,
       });
+    } catch {
+      // Not a fingerprint message
     }
 
-    const payloadMsg = this.config.decode.payload(message);
+    try {
+      const payloadMsg = this.config.decode.payload(message);
 
-    if (payloadMsg) {
       if (payloadMsg.end) {
         this.lowerBoundFromPrev = payloadMsg.end.upperBound;
       }
@@ -148,11 +175,13 @@ export class RangeMessenger<EncodedMessageType, ValueType, LiftedType> {
         "payload": payloadMsg.value,
         ...(payloadMsg.end ? { end: payloadMsg.end } : {}),
       });
+    } catch {
+      // Not a payload message.
     }
 
-    const emptyPayloadMsg = this.config.decode.emptyPayload(message);
+    try {
+      const emptyPayloadMsg = this.config.decode.emptyPayload(message);
 
-    if (emptyPayloadMsg) {
       this.lowerBoundFromPrev = emptyPayloadMsg;
 
       return ({
@@ -160,6 +189,8 @@ export class RangeMessenger<EncodedMessageType, ValueType, LiftedType> {
         "type": "emptyPayload",
         upperBound: emptyPayloadMsg,
       });
+    } catch {
+      // Not an empty payload message
     }
 
     return null as never;
@@ -235,6 +266,47 @@ export class RangeMessenger<EncodedMessageType, ValueType, LiftedType> {
         this.setReusableTree(null);
         return [result];
 
+      case "emptySet": {
+        if (result.canRespond === false) {
+          this.isDoneTee.resolve();
+        }
+
+        if (this.tree.size === 0) {
+          return [{ type: "emptySet", canRespond: false }];
+        }
+
+        // Return everything we've got.
+        const lowestValue = this.tree.getLowestValue();
+
+        const messages: ProcessStageResult<ValueType, LiftedType>[] = [{
+          type: "lowerBound",
+          value: lowestValue,
+        }];
+
+        const allItems = Array.from(this.tree.lnrValues());
+
+        for (let i = 0; i < allItems.length; i++) {
+          const item = allItems[i];
+
+          if (i === allItems.length - 1) {
+            messages.push({
+              type: "payload",
+              payload: item,
+              end: {
+                upperBound: lowestValue,
+                canRespond: false,
+              },
+            });
+          } else {
+            messages.push({ type: "payload", payload: item });
+          }
+        }
+
+        messages.push({ type: "terminal" });
+
+        return messages;
+      }
+
       case "fingerprint": {
         // If the fingerprint is not neutral, compare it with our own fingeprint of this range.
         const { fingerprint, size, items, nextTree } = this.tree.getFingerprint(
@@ -304,7 +376,7 @@ export class RangeMessenger<EncodedMessageType, ValueType, LiftedType> {
             }
           }
 
-          const b = 32;
+          const b = 2;
 
           const chunkSize = Math.ceil(size / b);
 
@@ -364,6 +436,10 @@ export class RangeMessenger<EncodedMessageType, ValueType, LiftedType> {
         // add all items in the payload to the tree
         for (const payloadItem of result.payload) {
           this.tree.insert(payloadItem);
+
+          for (const callback of this.insertionCallbacks) {
+            callback(payloadItem);
+          }
         }
 
         // If we can respond, send back payloads for everything in this range we have.
@@ -488,6 +564,12 @@ export class RangeMessenger<EncodedMessageType, ValueType, LiftedType> {
     message: ProcessStageResult<ValueType, LiftedType>,
   ): void {
     switch (message.type) {
+      case "emptySet": {
+        if (message.canRespond) {
+          this.isDoneSoFar = false;
+        }
+        break;
+      }
       case "lowerBound":
         this.isDoneSoFar = true;
         break;
@@ -517,6 +599,10 @@ export class RangeMessenger<EncodedMessageType, ValueType, LiftedType> {
     let encoded: EncodedMessageType;
 
     switch (message.type) {
+      case "emptySet": {
+        encoded = this.config.encode.emptySet(message.canRespond);
+        break;
+      }
       case "lowerBound": {
         encoded = this.config.encode.lowerBound(message.value);
 
@@ -547,7 +633,7 @@ export class RangeMessenger<EncodedMessageType, ValueType, LiftedType> {
       }
     }
 
-    return (encoded);
+    return encoded;
   }
 
   /** Formulates and returns the appropriate response given a message from another peer. May insert values into the RangeMessenger's tree.
@@ -612,22 +698,9 @@ export class RangeMessenger<EncodedMessageType, ValueType, LiftedType> {
 
     function* initiatingElements(): Iterable<EncodedMessageType> {
       if (tree.size === 0) {
-        /*
-              TODO: Do the right thing when the tree is empty.
+        yield config.encode.emptySet(true);
 
-              const lowerEncoded = config.encode.lowerBound(null);
-              const fingerprintEncoded = config.encode.emptyPayload(
-                tree.monoid.neutral[0],
-              );
-              const terminalEncoded = config.encode.terminal();
-
-
-              controller.enqueue(lowerEncoded);
-              controller.enqueue(fingerprintEncoded);
-              controller.enqueue(terminalEncoded);
-
-              return;
-              */
+        return;
       }
 
       // TODO: split fingerprint in two (make this configurable with b)
@@ -696,5 +769,15 @@ export class RangeMessenger<EncodedMessageType, ValueType, LiftedType> {
     }
 
     return initiatingElements();
+  }
+
+  onInsertion(
+    callback: (value: ValueType) => void,
+  ): () => void {
+    this.insertionCallbacks.add(callback);
+
+    return () => {
+      this.insertionCallbacks.delete(callback);
+    };
   }
 }
