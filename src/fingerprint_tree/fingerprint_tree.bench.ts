@@ -14,12 +14,10 @@ function makeSet(size: number): number[] {
   return Array.from(set);
 }
 
-const sizes = [1, 10, 100, 1000, 10000, 100000];
+const sizes = [1, 10, 100, 1000, 10000];
 
 for (const size of sizes) {
   const set = makeSet(size);
-
-  console.log(set.length);
 
   const tree = new FingerprintTree(concatMonoid);
   const rbTree = new RedBlackTree();

@@ -74,26 +74,38 @@ type ProcessStageResult<V, L> =
   | { type: "done"; upperBound: V }
   | { type: "terminal" };
 
+export type RangeMessengerOpts<EncodedMessageType, ValueType, LiftedType> = {
+  tree: FingerprintTree<ValueType, LiftedType>;
+  fingerprintEquals: (a: LiftedType, b: LiftedType) => boolean;
+  encoding: RangeMessengerConfig<EncodedMessageType, ValueType, LiftedType>;
+  /** If the size of a newly partitioned range is equal to or less than this number, that range's elements will be sent to the other peer. _Must_ be higher than 1.*/
+  payloadThreshold: number;
+  /** How many parts to subdivide ranges into. */
+  rangeDivision: number;
+};
+
 /** Produces and responds to messages, enabling efficient reconciliation of two sets. */
 export class RangeMessenger<EncodedMessageType, ValueType, LiftedType> {
   private tree: FingerprintTree<ValueType, LiftedType>;
-  private config: RangeMessengerConfig<
+  private encoding: RangeMessengerConfig<
     EncodedMessageType,
     ValueType,
     LiftedType
   >;
   private isDoneTee = new TeeableDeferred();
   private insertionCallbacks = new Set<(v: ValueType) => void>();
-  private fingerprintEqual: (a: LiftedType, b: LiftedType) => boolean;
+  private fingerprintEquals: (a: LiftedType, b: LiftedType) => boolean;
+  private payloadThreshold: number;
+  private rangeDivision: number;
 
   constructor(
-    tree: FingerprintTree<ValueType, LiftedType>,
-    fingerprintEqual: (a: LiftedType, b: LiftedType) => boolean,
-    config: RangeMessengerConfig<EncodedMessageType, ValueType, LiftedType>,
+    opts: RangeMessengerOpts<EncodedMessageType, ValueType, LiftedType>,
   ) {
-    this.tree = tree;
-    this.fingerprintEqual = fingerprintEqual;
-    this.config = config;
+    this.tree = opts.tree;
+    this.fingerprintEquals = opts.fingerprintEquals;
+    this.encoding = opts.encoding;
+    this.payloadThreshold = opts.payloadThreshold;
+    this.rangeDivision = opts.rangeDivision;
   }
 
   /** The lower bound of the next message, derived from the upper bound of the previous call to respond.*/
@@ -106,7 +118,7 @@ export class RangeMessenger<EncodedMessageType, ValueType, LiftedType> {
     const lowerBound = this.lowerBoundFromPrev;
 
     try {
-      const canRespond = this.config.decode.emptySet(message);
+      const canRespond = this.encoding.decode.emptySet(message);
 
       return ({
         type: "emptySet",
@@ -117,7 +129,7 @@ export class RangeMessenger<EncodedMessageType, ValueType, LiftedType> {
     }
 
     try {
-      const lowerBoundMsg = this.config.decode.lowerBound(message);
+      const lowerBoundMsg = this.encoding.decode.lowerBound(message);
 
       this.lowerBoundFromPrev = lowerBoundMsg;
 
@@ -131,14 +143,14 @@ export class RangeMessenger<EncodedMessageType, ValueType, LiftedType> {
     }
 
     try {
-      this.config.decode.terminal(message);
+      this.encoding.decode.terminal(message);
       return ({ "type": "terminal" });
     } catch {
       // Not a terminal message
     }
 
     try {
-      const rangeDoneUpperBound = this.config.decode.done(message);
+      const rangeDoneUpperBound = this.encoding.decode.done(message);
 
       this.lowerBoundFromPrev = rangeDoneUpperBound;
 
@@ -152,7 +164,7 @@ export class RangeMessenger<EncodedMessageType, ValueType, LiftedType> {
     }
 
     try {
-      const fingerprintMsg = this.config.decode.fingerprint(message);
+      const fingerprintMsg = this.encoding.decode.fingerprint(message);
 
       this.lowerBoundFromPrev = fingerprintMsg.upperBound;
       return ({
@@ -166,7 +178,7 @@ export class RangeMessenger<EncodedMessageType, ValueType, LiftedType> {
     }
 
     try {
-      const payloadMsg = this.config.decode.payload(message);
+      const payloadMsg = this.encoding.decode.payload(message);
 
       if (payloadMsg.end) {
         this.lowerBoundFromPrev = payloadMsg.end.upperBound;
@@ -183,7 +195,7 @@ export class RangeMessenger<EncodedMessageType, ValueType, LiftedType> {
     }
 
     try {
-      const emptyPayloadMsg = this.config.decode.emptyPayload(message);
+      const emptyPayloadMsg = this.encoding.decode.emptyPayload(message);
 
       this.lowerBoundFromPrev = emptyPayloadMsg;
 
@@ -321,7 +333,7 @@ export class RangeMessenger<EncodedMessageType, ValueType, LiftedType> {
         this.setReusableTree(nextTree);
 
         // If the fingeprints match, we've reconciled this range. Hooray!
-        if (this.fingerprintEqual(fingerprint, result.fingerprint)) {
+        if (this.fingerprintEquals(fingerprint, result.fingerprint)) {
           return [{
             "type": "done",
             upperBound: result.upperBound,
@@ -329,10 +341,7 @@ export class RangeMessenger<EncodedMessageType, ValueType, LiftedType> {
         }
 
         // If it doesn't, check how many items are in the non-matching range...
-        // TODO: make k configurable.
-        const k = 1;
-
-        if (size <= k) {
+        if (size <= this.payloadThreshold) {
           // If we have zero items in this range,
           //  Send an empty payload
           if (size === 0) {
@@ -359,39 +368,15 @@ export class RangeMessenger<EncodedMessageType, ValueType, LiftedType> {
 
           return acc;
         } else {
-          // If we have more than k items, we want to divide the range into b parts.
-          // TODO: make b configurable
+          const chunkSize = Math.ceil(size / this.rangeDivision);
+          const acc: ProcessStageResult<ValueType, LiftedType>[] = [];
 
-          let itemsToUse = items;
-          let changedItems = false;
-
-          if (result.lowerBound >= result.upperBound) {
-            // Search for the lower bound in items.
-            const indexOfLowerBound = items.indexOf(result.lowerBound);
-
-            if (indexOfLowerBound > 0) {
-              const newStart = items.slice(indexOfLowerBound);
-              const newEnd = items.slice(0, indexOfLowerBound);
-
-              changedItems = true;
-
-              itemsToUse = [...newStart, ...newEnd];
-            }
-          }
-
-          const b = 2;
-
-          const chunkSize = Math.ceil(size / b);
-
-          if (chunkSize <= k) {
-            const acc: ProcessStageResult<ValueType, LiftedType>[] = [];
-
-            for (let i = 0; i < size; i++) {
+          if (chunkSize <= this.payloadThreshold) {
+            for (let i = 0; i < items.length; i++) {
               acc.push({
                 type: "payload",
-
-                payload: itemsToUse[i],
-                ...(i === size - 1
+                payload: items[i],
+                ...(i === items.length - 1
                   ? {
                     end: {
                       upperBound: result.upperBound,
@@ -406,8 +391,20 @@ export class RangeMessenger<EncodedMessageType, ValueType, LiftedType> {
           }
 
           let reusableTreeForChunks = undefined;
+          const itemsToUse = items;
+          let changedItems = false;
 
-          const acc: ProcessStageResult<ValueType, LiftedType>[] = [];
+          if (result.lowerBound >= result.upperBound) {
+            const indexFirstItemGteLowerBound = items.findIndex((item) => {
+              return item >= result.lowerBound;
+            });
+
+            if (indexFirstItemGteLowerBound > 0) {
+              const newEnd = itemsToUse.splice(0, indexFirstItemGteLowerBound);
+              itemsToUse.push(...newEnd);
+              changedItems = true;
+            }
+          }
 
           for (let i = 0; i < size; i += chunkSize) {
             const rangeBeginning = itemsToUse[i];
@@ -603,35 +600,35 @@ export class RangeMessenger<EncodedMessageType, ValueType, LiftedType> {
 
     switch (message.type) {
       case "emptySet": {
-        encoded = this.config.encode.emptySet(message.canRespond);
+        encoded = this.encoding.encode.emptySet(message.canRespond);
         break;
       }
       case "lowerBound": {
-        encoded = this.config.encode.lowerBound(message.value);
+        encoded = this.encoding.encode.lowerBound(message.value);
 
         break;
       }
       case "done": {
-        encoded = this.config.encode.done(message.upperBound);
+        encoded = this.encoding.encode.done(message.upperBound);
         break;
       }
       case "fingerprint": {
-        encoded = this.config.encode.fingerprint(
+        encoded = this.encoding.encode.fingerprint(
           message.fingerprint,
           message.upperBound,
         );
         break;
       }
       case "payload": {
-        encoded = this.config.encode.payload(message.payload, message.end);
+        encoded = this.encoding.encode.payload(message.payload, message.end);
         break;
       }
       case "emptyPayload": {
-        encoded = this.config.encode.emptyPayload(message.upperBound);
+        encoded = this.encoding.encode.emptyPayload(message.upperBound);
         break;
       }
       case "terminal": {
-        encoded = this.config.encode.terminal();
+        encoded = this.encoding.encode.terminal();
         break;
       }
     }
@@ -696,12 +693,14 @@ export class RangeMessenger<EncodedMessageType, ValueType, LiftedType> {
   }
 
   /** Returns the opening messages for initiating an exchange between two peers. */
-  initialMessages(): Iterable<EncodedMessageType> {
-    const { tree, config } = this;
+  initialMessages(
+    partitionItems?: (items: ValueType[]) => ValueType[][],
+  ): Iterable<EncodedMessageType> {
+    const { tree, encoding, payloadThreshold, rangeDivision } = this;
 
     function* initiatingElements(): Iterable<EncodedMessageType> {
       if (tree.size === 0) {
-        yield config.encode.emptySet(true);
+        yield encoding.encode.emptySet(true);
 
         return;
       }
@@ -709,65 +708,68 @@ export class RangeMessenger<EncodedMessageType, ValueType, LiftedType> {
       // TODO: split fingerprint in two (make this configurable with b)
       const lowestValue = tree.getLowestValue();
 
-      const lowerEncoded = config.encode.lowerBound(lowestValue);
+      const lowerEncoded = encoding.encode.lowerBound(lowestValue);
 
       yield lowerEncoded;
 
-      const { items, size } = tree.getFingerprint(
+      const { items } = tree.getFingerprint(
         lowestValue,
         lowestValue,
       );
 
-      const k = 1;
+      const partition = partitionItems || ((items: ValueType[]) => {
+        const chunkSize = Math.ceil(
+          items.length / rangeDivision,
+        );
 
-      if (size <= k) {
-        // If we have zero items in this range,  send all items we have from here.
-        if (size === 0) {
-          const emptyEncoded = config.encode.emptyPayload(lowestValue);
-          yield emptyEncoded;
+        const acc: ValueType[][] = [];
+
+        for (let i = 0; i < items.length; i += chunkSize) {
+          const chunk = items.slice(i, i + chunkSize);
+          acc.push(chunk);
         }
 
-        // Otherwise, send a payload for each item here.
-        for (let i = 0; i < items.length; i++) {
-          const payloadEncoded = config.encode.payload(
-            items[i],
-            i === items.length - 1
-              ? {
-                upperBound: lowestValue,
-                canRespond: true,
-              }
-              : undefined,
-          );
+        return acc;
+      });
 
-          yield payloadEncoded;
-        }
-      } else {
-        const b = 2;
+      const chunks = partition(items);
 
-        const chunkSize = Math.ceil(size / b);
+      let reusableTreeForChunks = undefined;
 
-        // if it's > k then divide ranges (could be divided into 2 or more depending on number of items, define this with b.)
-        for (let i = 0; i < size; i += chunkSize) {
-          // calculate fingerprint with
-          const rangeBeginning = items[i];
+      for (let ci = 0; ci < chunks.length; ci++) {
+        const rangeEnd = chunks[ci + 1] ? chunks[ci + 1][0] : lowestValue;
 
-          const rangeEnd = items[i + chunkSize] || lowestValue;
+        const chunk = chunks[ci];
 
-          const { fingerprint: chunkFingerprint } = tree.getFingerprint(
-            rangeBeginning,
-            rangeEnd,
-          );
+        if (chunk.length <= payloadThreshold) {
+          for (let i = 0; i < chunk.length; i++) {
+            yield encoding.encode.payload(
+              chunk[i],
+              i === chunk.length - 1
+                ? {
+                  upperBound: rangeEnd,
+                  canRespond: true,
+                }
+                : undefined,
+            );
+          }
+        } else {
+          const rangeBeginning = chunk[0];
 
-          const fingerprintEncoded = config.encode.fingerprint(
-            chunkFingerprint,
-            rangeEnd,
-          );
+          const { fingerprint: chunkFingerprint, nextTree } = tree
+            .getFingerprint(
+              rangeBeginning,
+              rangeEnd,
+              reusableTreeForChunks,
+            );
 
-          yield fingerprintEncoded;
+          reusableTreeForChunks = nextTree || undefined;
+
+          yield encoding.encode.fingerprint(chunkFingerprint, rangeEnd);
         }
       }
 
-      const terminalEncoded = config.encode.terminal();
+      const terminalEncoded = encoding.encode.terminal();
       yield terminalEncoded;
     }
 

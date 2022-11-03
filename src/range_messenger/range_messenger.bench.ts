@@ -54,14 +54,22 @@ for (const size of sizes) {
     }
 
     const messengerA = new RangeMessenger(
-      treeA,
-      nativeEquals,
-      objConfig,
+      {
+        tree: treeA,
+        fingerprintEquals: nativeEquals,
+        encoding: objConfig,
+        payloadThreshold: 1,
+        rangeDivision: 2,
+      },
     );
     const messengerB = new RangeMessenger(
-      treeB,
-      nativeEquals,
-      objConfig,
+      {
+        tree: treeB,
+        fingerprintEquals: nativeEquals,
+        encoding: objConfig,
+        payloadThreshold: 1,
+        rangeDivision: 2,
+      },
     );
 
     await sync(messengerA, messengerB);

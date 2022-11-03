@@ -37,7 +37,7 @@ function createTestSet() {
     }
   }
 
-  return multiplyElements(acc, Math.floor(Math.random() * 4) + 1);
+  return multiplyElements(acc, Math.floor(Math.random() * 8) + 1);
 }
 
 function nativeEquals(a: string, b: string) {
@@ -53,7 +53,13 @@ async function createTestCase() {
     treeA.insert(item);
   }
 
-  const brokerA = new RangeMessenger(treeA, nativeEquals, objConfig);
+  const brokerA = new RangeMessenger({
+    tree: treeA,
+    fingerprintEquals: nativeEquals,
+    encoding: objConfig,
+    payloadThreshold: 1,
+    rangeDivision: 2,
+  });
 
   // Other peer
 
@@ -65,7 +71,13 @@ async function createTestCase() {
     treeB.insert(item);
   }
 
-  const brokerB = new RangeMessenger(treeB, nativeEquals, objConfig);
+  const brokerB = new RangeMessenger({
+    tree: treeB,
+    fingerprintEquals: nativeEquals,
+    encoding: objConfig,
+    payloadThreshold: 1,
+    rangeDivision: 2,
+  });
 
   await sync(brokerA, brokerB);
 
