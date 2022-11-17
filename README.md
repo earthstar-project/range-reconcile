@@ -76,7 +76,8 @@ Therefore the lifting monoid **must** satisfy the following criteria:
    such values according to the next two rules. `lift(item)` is the fingerprint
    of the set that contains only item. For larger sets, the fingerprint is
    computed by `combine`ing the results of `lift(item)` of all the individual
-   items in the larger set.
+   items in the larger set. Doing so efficiently is done by the tree behind the
+   scenes.
 2. The combine method must be associative — i.e.
    `combine(a, combine(b, c)) === combine(combine(a, b), c)`
 3. The neutral value must be a value from the monoid that leaves other (monoid)
