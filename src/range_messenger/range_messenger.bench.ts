@@ -22,18 +22,28 @@ function nativeEquals(a: string, b: string) {
   return a === b;
 }
 
+function compare<T>(a: T, b: T) {
+  if (a > b) {
+    return 1;
+  } else if (a < b) {
+    return -1;
+  } else {
+    return 0;
+  }
+}
+
 for (const size of sizes) {
   const setA = makeSet(size);
   const setB = makeSet(size);
 
   Deno.bench(`Instantiate two sets (size ${size})`, () => {
-    const treeA = new FingerprintTree(concatMonoid);
+    const treeA = new FingerprintTree(concatMonoid, compare);
 
     for (const item of setA) {
       treeA.insert(`${item}`);
     }
 
-    const treeB = new FingerprintTree(concatMonoid);
+    const treeB = new FingerprintTree(concatMonoid, compare);
 
     for (const item of setB) {
       treeB.insert(`${item}`);
@@ -41,13 +51,13 @@ for (const size of sizes) {
   });
 
   Deno.bench(`Instantiate and sync two sets (size ${size})`, async () => {
-    const treeA = new FingerprintTree(concatMonoid);
+    const treeA = new FingerprintTree(concatMonoid, compare);
 
     for (const item of setA) {
       treeA.insert(`${item}`);
     }
 
-    const treeB = new FingerprintTree(concatMonoid);
+    const treeB = new FingerprintTree(concatMonoid, compare);
 
     for (const item of setB) {
       treeB.insert(`${item}`);

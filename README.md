@@ -1,4 +1,4 @@
-# Range-based set reconciliation
+# range_reconcile
 
 A module for the efficient reconciliation of sets. This is a TypeScript
 implementation of range-based set reconciliation as described in
@@ -10,14 +10,14 @@ totally ordered set.
 When two ranges from different peers hold the same items, they produce the same
 fingerprint.
 
-But when two ranges from different peers are different from one another, they
-produce different fingeprints. The two peers then subdivide non-matching ranges,
-generating and comparing fingerprints until the ranges are whittled down to the
-disjoint elements, which are then exchanged.
+But when two ranges are different from one another, they produce different
+fingeprints. The two peers then subdivide non-matching ranges, generating and
+comparing fingerprints until the ranges are whittled down to the disjoint
+elements, which are then exchanged.
 
 ## About this implementation
 
-This implementation of this implementation has the following features:
+This implementation has the following features:
 
 - A reasonably fast self-balancing `FingerprintTree` built upon Deno's std
   `RedBlackTree`. This is used to hold your set's values and generate
@@ -33,7 +33,7 @@ This implementation of this implementation has the following features:
   method which takes and returns an encoded message, which you then transport to
   the other peer in whichever way you prefer.
 
-One caveat: the `FingerprintTree` provided by this module can only persist its
+One caveat: the `FingerprintTree` provided by this module can only store its
 values in memory.
 
 ## Using this moudule
@@ -49,24 +49,39 @@ At the broadest level:
 
 ### Detailed usage
 
+### Importing
+
+```js
+import {
+  FingerprintTree,
+  RangeMessenger,
+} from "https://deno.land/x/range_reconcile/mod.ts";
+```
+
+NPM distribution coming soon!
+
 #### FingerprintTree
 
 The `FingerprintTree` is used as the representation of a set you wish to
 reconcile. Instantiation requires a 'lifting monoid' to be provided, and
 optionally a function with which to compare inserted values.
 
-The lifting monoid must satisfy the following criteria:
+This lifting monoid is important because it is used to generate the fingerprints
+which peers exchange and compare their own fingerprints to.
 
-1. The lift method should create a unique value within the universe of the set,
-   where each possible value of the set has a unique lifted value (must ask
-   aljoscha to get this right, I know this isn't)
+Therefore the lifting monoid **must** satisfy the following criteria:
+
+1. The lift method must map every item that could possibly occur in a set to a
+   value from the monoid, that is, to a value that can be combined with other
+   such values according to the next two rules. `lift(item)` is the fingerprint
+   of the set that contains only item. For larger sets, the fingerprint is
+   computed by `combine`ing the results of `lift(item)` of all the individual
+   items in the larger set.
 2. The combine method must be associative — i.e.
    `combine(a, combine(b, c)) === combine(combine(a, b), c)`
-3. The neutral method is a constant value which does not affect the outcome of
-   the combine method (ask... aljoscha...)
-
-If no comparison function is provided, `FingerprintTree` will use JavaScript's
-built in comparison instead. You have been warned!
+3. The neutral value must be a value from the monoid that leaves other (monoid)
+   values unaffected when combining them with it: combine(a, neutral) === a and
+   combine(neutral, a) === a.
 
 #### RangeMessenger
 
@@ -77,13 +92,13 @@ peer.
 This `RangeMessenger` requires a configuration which describes how to decode and
 encode messages from and to the other peer respectively.
 
-Once instantiated, the initial messages to send the other peer can be generated
-with the `initialMessages` method.
+Once instantiated, the initial messages to send to the other peer can be
+generated with the `initialMessages` method.
 
 Upon receiving a message, it should be passed to `RangeMessenger.respond`, which
 returns the response to be sent back in turn.
 
-How messages are sent and received are up to you. Just make sure that whichever
+How messages are sent and received is up to you. Just make sure that whichever
 system you choose sends and processes the messages in order (i.e. first-in,
 first-out).
 
@@ -92,15 +107,21 @@ first-out).
 This module uses Deno as its development runtime.
 [Installation instructions can be found here](https://deno.land/#installation).
 
-Documentation can be viewed with `deno doc mod.ts`.
+API documentation can be viewed with `deno doc mod.ts`.
 
 Tests can be run with `deno task test`.
 
 Benchmarks can be run with `deno task bench`.
 
-## TODO
+## Acknowledgements
 
-- [ ] Make b and k of MessageBroker configurable.
+- [Aljoscha Meyer](https://aljoscha-meyer.de), who not only designed this new
+  method, but also answered my many, many questions; spotted my errors;
+  suggested improvements; and been an all-round great friend and teacher.
+- [NLnet foundation](https://nlnet.nl), whose funding made it possible for me to
+  work on this.
+
+TODO:
+
 - [ ] Create comparative benchmarks for syncing with changing b / k.
-- [ ] Add `onInsertedValue` callback subscriber to `RangeMessenger` (i.e. to
-      trigger Earthstar checking if it wants a doc thumbnail)
+- [ ] Create a NPM distribution and publish it.

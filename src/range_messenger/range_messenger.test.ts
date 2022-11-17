@@ -21,6 +21,16 @@ function multiplyElements(elements: string[], by: number): string[] {
 
 const elements = ["ape", "bee", "cat", "doe", "eel", "fox", "gnu", "hog"];
 
+function compare<T>(a: T, b: T) {
+  if (a > b) {
+    return 1;
+  } else if (a < b) {
+    return -1;
+  } else {
+    return 0;
+  }
+}
+
 function createTestSet() {
   const baseCount = Math.floor(Math.random() * 8);
 
@@ -45,7 +55,7 @@ function nativeEquals(a: string, b: string) {
 }
 
 async function createTestCase() {
-  const treeA = new FingerprintTree(concatMonoid);
+  const treeA = new FingerprintTree(concatMonoid, compare);
 
   const setA = createTestSet();
 
@@ -63,7 +73,7 @@ async function createTestCase() {
 
   // Other peer
 
-  const treeB = new FingerprintTree(concatMonoid);
+  const treeB = new FingerprintTree(concatMonoid, compare);
 
   const setB = createTestSet();
 

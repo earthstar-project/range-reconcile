@@ -98,7 +98,7 @@ export class FingerprintTree<ValueType, LiftedType>
     /** The lifting monoid which is used to label nodes and derive fingerprints from ranges. */
     monoid: LiftingMonoid<ValueType, LiftedType>,
     /** A function to sort values by. Will use JavaScript's default comparison if not provided. */
-    compare?: (a: ValueType, b: ValueType) => number,
+    compare: (a: ValueType, b: ValueType) => number,
   ) {
     super(compare);
 

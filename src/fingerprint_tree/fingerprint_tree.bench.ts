@@ -19,7 +19,15 @@ const sizes = [1, 10, 100, 1000, 10000];
 for (const size of sizes) {
   const set = makeSet(size);
 
-  const tree = new FingerprintTree(concatMonoid);
+  const tree = new FingerprintTree(concatMonoid, (a, b) => {
+    if (a > b) {
+      return 1;
+    } else if (a < b) {
+      return -1;
+    } else {
+      return 0;
+    }
+  });
   const rbTree = new RedBlackTree();
 
   Deno.bench(`Insert into RedBlackTree (${size} items)`, {
