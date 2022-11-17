@@ -37,7 +37,7 @@ function createTestSet() {
     }
   }
 
-  return multiplyElements(acc, Math.floor(Math.random() * 8) + 1);
+  return multiplyElements(acc, Math.floor(Math.random() * 50) + 1);
 }
 
 function nativeEquals(a: string, b: string) {

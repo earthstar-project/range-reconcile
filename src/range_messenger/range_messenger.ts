@@ -109,7 +109,7 @@ export class RangeMessenger<EncodedMessageType, ValueType, LiftedType> {
   }
 
   /** The lower bound of the next message, derived from the upper bound of the previous call to respond.*/
-  private lowerBoundFromPrev: ValueType = null as ValueType;
+  private lowerBoundFromPrev: ValueType = null as unknown as ValueType;
 
   /** Decodes an incoming message, and remembers its upper bound to use as a lower bound for the next message. */
   private decode(
@@ -571,7 +571,6 @@ export class RangeMessenger<EncodedMessageType, ValueType, LiftedType> {
         break;
       }
       case "lowerBound":
-        this.isDoneSoFar = true;
         break;
       case "fingerprint":
         this.isDoneSoFar = false;
@@ -641,6 +640,10 @@ export class RangeMessenger<EncodedMessageType, ValueType, LiftedType> {
    * This method must be called with the messages from another peer, in the order they came.
    */
   respond(message: EncodedMessageType): Array<EncodedMessageType> {
+    if (this.isDone().state === "fulfilled") {
+      return [];
+    }
+
     // In the second stage of the pipeline we need to consolidate all payload messages into a single message with all items included.
 
     // In the third stage of the pipeline we formulate our response to these messages, as well as perform tree insertions.
