@@ -241,7 +241,12 @@ export class RangeMessenger<EncodedMessageType, ValueType, LiftedType> {
           this.collatedPayload = nextPayload;
 
           if (decoded.end) {
-            nextPayload.end = decoded.end;
+            if (decoded.end.upperBound) {
+              nextPayload.end = decoded.end;
+            } else {
+              nextPayload.end = { ...decoded.end, upperBound: decoded.payload };
+            }
+
             this.collatedPayload = null;
             return (nextPayload);
           }
@@ -444,6 +449,8 @@ export class RangeMessenger<EncodedMessageType, ValueType, LiftedType> {
 
         // If we can respond, send back payloads for everything in this range we have.
         if (result.end.canRespond) {
+          console.log(result.end);
+
           const { items, size, nextTree } = this.tree.getFingerprint(
             result.lowerBound,
             result.end.upperBound,
