@@ -449,8 +449,6 @@ export class RangeMessenger<EncodedMessageType, ValueType, LiftedType> {
 
         // If we can respond, send back payloads for everything in this range we have.
         if (result.end.canRespond) {
-          console.log(result.end);
-
           const { items, size, nextTree } = this.tree.getFingerprint(
             result.lowerBound,
             result.end.upperBound,
