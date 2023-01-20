@@ -58,7 +58,11 @@ import {
 } from "https://deno.land/x/range_reconcile/mod.ts";
 ```
 
-NPM distribution coming soon!
+Or install the NPM module:
+
+```
+npm install range-reconcile
+```
 
 #### FingerprintTree
 
@@ -125,4 +129,3 @@ Benchmarks can be run with `deno task bench`.
 TODO:
 
 - [ ] Create comparative benchmarks for syncing with changing b / k.
-- [ ] Create a NPM distribution and publish it.

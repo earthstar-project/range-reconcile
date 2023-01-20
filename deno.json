@@ -2,6 +2,6 @@
   "tasks": {
     "test": "deno test src",
     "bench": "deno bench --unstable src",
-    "msg_run": "deno run scripts/msg_broker.ts"
+    "npm": "deno run --allow-read --allow-write --allow-env --allow-net --allow-run scripts/build_npm.ts"
   }
 }
