@@ -3,7 +3,12 @@ import {
   Direction,
   RedBlackNode,
 } from "https://deno.land/std@0.158.0/collections/red_black_node.ts";
-import { combineMonoid, LiftingMonoid, sizeMonoid } from "../lifting_monoid.ts";
+import {
+  combineMonoid,
+  LiftingMonoid,
+  makeMaxChildMonoid,
+  sizeMonoid,
+} from "../lifting_monoid.ts";
 
 const debug = false;
 
@@ -82,8 +87,9 @@ export class FingerprintNode<
   }
 }
 
-export type NodeType<V, L> = FingerprintNode<V, [L, [number, V[]]]>;
-type CombinedLabel<V, L> = [L, [number, V[]]];
+// Lifted type of range, size of range, items in range, max node in range.
+type CombinedLabel<V, L> = [L, [number, [V[], V]]];
+export type NodeType<V, L> = FingerprintNode<V, CombinedLabel<V, L>>;
 
 /** A self-balancing tree which can return fingerprints for ranges of items it holds using a provided monoid. */
 export class FingerprintTree<ValueType, LiftedType>
@@ -92,25 +98,41 @@ export class FingerprintTree<ValueType, LiftedType>
     | NodeType<ValueType, LiftedType>
     | null;
 
-  monoid: LiftingMonoid<ValueType, [LiftedType, [number, ValueType[]]]>;
+  monoid: LiftingMonoid<
+    ValueType,
+    [LiftedType, [number, [ValueType[], ValueType]]]
+  >;
 
   constructor(
     /** The lifting monoid which is used to label nodes and derive fingerprints from ranges. */
     monoid: LiftingMonoid<ValueType, LiftedType>,
     /** A function to sort values by. Will use JavaScript's default comparison if not provided. */
     compare: (a: ValueType, b: ValueType) => number,
+    lowestValue: ValueType,
   ) {
     super(compare);
 
+    const maxMonoid = makeMaxChildMonoid<ValueType>(
+      compare,
+      lowestValue,
+    );
+
+    const collectorMonoid = {
+      lift: (v: ValueType) => [v],
+      combine: (a: ValueType[], b: ValueType[]) => {
+        return a.concat(b);
+      },
+      neutral: [],
+    };
+
+    const combinedCollectorMaxMonoid = combineMonoid(
+      collectorMonoid,
+      maxMonoid,
+    );
+
     this.monoid = combineMonoid(
       monoid,
-      combineMonoid(sizeMonoid, {
-        lift: (v: ValueType) => [v],
-        combine: (a: ValueType[], b: ValueType[]) => {
-          return a.concat(b);
-        },
-        neutral: [],
-      }),
+      combineMonoid(sizeMonoid, combinedCollectorMaxMonoid),
     );
   }
 
@@ -345,7 +367,7 @@ export class FingerprintTree<ValueType, LiftedType>
       return {
         fingerprint: this.root.label[0],
         size: this.root.label[1][0],
-        items: this.root.label[1][1],
+        items: this.root.label[1][1][0],
         nextTree: null,
       };
     } else if (order < 0) {
@@ -358,23 +380,23 @@ export class FingerprintTree<ValueType, LiftedType>
       return {
         fingerprint: label[0],
         size: label[1][0],
-        items: label[1][1],
+        items: label[1][1][0],
         nextTree,
       };
     } else {
       const minNode = this.root.findMinNode();
-      const maxNode = this.root.findMaxNode();
+      const maxNode = this.root.label[1][1][1];
 
       const { label: label0, nextTree: nextTree0 } = this.aggregateUntil(
         nodeToPass,
         x,
-        maxNode.value,
+        maxNode,
       );
 
       const label = this.monoid.combine(
         label0,
-        this.compare(maxNode.value, x) >= 0
-          ? this.monoid.lift(maxNode.value)
+        this.compare(maxNode, x) >= 0
+          ? this.monoid.lift(maxNode)
           : this.monoid.neutral,
       );
 
@@ -382,7 +404,7 @@ export class FingerprintTree<ValueType, LiftedType>
         return {
           fingerprint: label[0],
           size: label[1][0],
-          items: label[1][1],
+          items: label[1][1][0],
           nextTree: nextTree0,
         };
       }
@@ -398,7 +420,7 @@ export class FingerprintTree<ValueType, LiftedType>
       return {
         fingerprint: combined[0],
         size: combined[1][0],
-        items: combined[1][1],
+        items: combined[1][1][0],
         nextTree,
       };
     }
@@ -455,7 +477,7 @@ export class FingerprintTree<ValueType, LiftedType>
     let acc: CombinedLabel<ValueType, LiftedType> = this.monoid.neutral;
     let tree = node;
 
-    while (this.compare(tree.findMaxNode().value, y) < 0) {
+    while (this.compare(tree.label[1][1][1], y) < 0) {
       if (this.compare(tree.value, x) >= 0) {
         acc = this.monoid.combine(
           acc,
@@ -499,7 +521,7 @@ export class FingerprintTree<ValueType, LiftedType>
 
         tree = tree.right;
       } else if (
-        tree.left === null || this.compare(tree.left.findMaxNode().value, y) < 0
+        tree.left === null || this.compare(tree.label[1][1][1], y) < 0
       ) {
         return {
           label: this.monoid.combine(

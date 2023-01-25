@@ -55,7 +55,7 @@ function nativeEquals(a: string, b: string) {
 }
 
 async function createTestCase() {
-  const treeA = new FingerprintTree(concatMonoid, compare);
+  const treeA = new FingerprintTree(concatMonoid, compare, "" as string);
 
   const setA = createTestSet();
 
@@ -73,7 +73,7 @@ async function createTestCase() {
 
   // Other peer
 
-  const treeB = new FingerprintTree(concatMonoid, compare);
+  const treeB = new FingerprintTree(concatMonoid, compare, "" as string);
 
   const setB = createTestSet();
 

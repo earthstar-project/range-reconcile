@@ -27,7 +27,7 @@ for (const size of sizes) {
     } else {
       return 0;
     }
-  });
+  }, "" as string);
   const rbTree = new RedBlackTree();
 
   Deno.bench(`Insert into RedBlackTree (${size} items)`, {
