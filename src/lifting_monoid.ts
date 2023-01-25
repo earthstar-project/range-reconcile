@@ -46,17 +46,3 @@ export const sizeMonoid: LiftingMonoid<unknown, number> = {
   combine: (a: number, b: number) => a + b,
   neutral: 0,
 };
-
-/** A higher-order monoid which is able to determine the maximum value of a node. */
-export function makeMaxChildMonoid<ValueType>(
-  compare: (a: ValueType, b: ValueType) => number,
-  lowestValue: ValueType,
-): LiftingMonoid<ValueType, ValueType> {
-  return {
-    lift: (v) => v,
-    combine: (a: ValueType, b: ValueType) => {
-      return compare(a, b) > 0 ? a : b;
-    },
-    neutral: lowestValue,
-  };
-}
