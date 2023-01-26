@@ -373,6 +373,7 @@ export class RangeMessenger<EncodedMessageType, ValueType, LiftedType> {
 
           return acc;
         } else {
+          // Otherwise we subdivide.
           const chunkSize = Math.ceil(size / this.rangeDivision);
           const acc: ProcessStageResult<ValueType, LiftedType>[] = [];
 
@@ -399,6 +400,8 @@ export class RangeMessenger<EncodedMessageType, ValueType, LiftedType> {
           const itemsToUse = items;
           let changedItems = false;
 
+          // LEFT HERE. Need a better way to subdivide ranges where the query loops over.
+
           if (result.lowerBound >= result.upperBound) {
             const indexFirstItemGteLowerBound = items.findIndex((item) => {
               return item >= result.lowerBound;
@@ -408,6 +411,16 @@ export class RangeMessenger<EncodedMessageType, ValueType, LiftedType> {
               const newEnd = itemsToUse.splice(0, indexFirstItemGteLowerBound);
               itemsToUse.push(...newEnd);
               changedItems = true;
+
+              /*
+              console.log(
+                result.lowerBound,
+                result.upperBound,
+                items,
+                itemsToUse,
+                indexFirstItemGteLowerBound,
+              );
+              */
             }
           }
 

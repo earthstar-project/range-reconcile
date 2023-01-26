@@ -143,6 +143,10 @@ export class FingerprintTree<ValueType, LiftedType>
       throw new Error("Can't get a range from a tree with no items");
     }
 
+    if (this.cachedMinNode) {
+      return this.cachedMinNode.value;
+    }
+
     return this.root.findMinNode().value;
   }
 
@@ -383,7 +387,7 @@ export class FingerprintTree<ValueType, LiftedType>
         fingerprint: this.root.label[0],
         size: this.root.label[1][0],
         items: this.root.label[1][1][0],
-        nextTree: null,
+        nextTree: this.cachedMinNode,
       };
     } else if (order < 0) {
       const minNode = this.compare(x, this.cachedMinNode!.value) <= 0

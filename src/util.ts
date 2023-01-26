@@ -13,28 +13,20 @@ export function reconcile<E, V, L>(
 
   (async () => {
     for await (const msg of queueB) {
-      //   console.log("B got", msg);
-
       const responses = b.respond(msg);
 
-      //  await sleep();
-
-      for (const res of responses) {
-        queueA.push(res);
+      if (responses.length) {
+        queueA.push(...responses);
       }
     }
   })();
 
   (async () => {
     for await (const msg of queueA) {
-      //  console.log("A got", msg);
-
       const responses = a.respond(msg);
 
-      // await sleep();
-
-      for (const res of responses) {
-        queueB.push(res);
+      if (responses.length) {
+        queueB.push(...responses);
       }
     }
   })();
