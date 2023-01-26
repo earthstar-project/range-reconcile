@@ -386,7 +386,11 @@ export class FingerprintTree<ValueType, LiftedType>
         nextTree: null,
       };
     } else if (order < 0) {
-      const nodeToPass = nextTree || this.findGteNode(
+      const minNode = this.compare(x, this.cachedMinNode!.value) <= 0
+        ? this.cachedMinNode
+        : null;
+
+      const nodeToPass = nextTree || minNode || this.findGteNode(
         x,
       ) as NodeType<ValueType, LiftedType>;
 
@@ -464,7 +468,11 @@ export class FingerprintTree<ValueType, LiftedType>
           nextTree: nextTree,
         };
       } else {
-        const nodeToPass = nextTree || this.findGteNode(
+        const minNode = this.compare(x, this.cachedMinNode!.value) <= 0
+          ? this.cachedMinNode
+          : null;
+
+        const nodeToPass = nextTree || minNode || this.findGteNode(
           x,
         ) as NodeType<ValueType, LiftedType>;
 

@@ -568,6 +568,10 @@ export class RangeMessenger<EncodedMessageType, ValueType, LiftedType> {
   private checkIsDone(
     message: ProcessStageResult<ValueType, LiftedType>,
   ): void {
+    if (this.isDoneTee.state !== "pending") {
+      return;
+    }
+
     switch (message.type) {
       case "emptySet": {
         if (message.canRespond) {

@@ -1,27 +1,46 @@
 import { RangeMessenger } from "./range_messenger/range_messenger.ts";
-import { Deferred } from "https://deno.land/std@0.158.0/async/deferred.ts";
+import { AsyncQueue } from "https://deno.land/x/for_awaitable_queue@1.0.0/mod.ts";
 
 /** Execute a complete exchange between two RangeMessengers, syncing their trees. */
-export async function sync<E, V, L>(
-  from: RangeMessenger<E, V, L>,
-  to: RangeMessenger<E, V, L>,
-  messages?: AsyncIterable<E> | Iterable<E>,
-  isDone?: Deferred<unknown>,
-): Promise<void> {
-  const msgs: E[] = [];
+export function reconcile<E, V, L>(
+  a: RangeMessenger<E, V, L>,
+  b: RangeMessenger<E, V, L>,
+): Promise<unknown[]> {
+  const queueA = new AsyncQueue<E>();
+  const queueB = new AsyncQueue<E>();
 
-  const messagesToProcess = messages || from.initialMessages();
+  queueB.push(...a.initialMessages());
 
-  for await (
-    const msg of messagesToProcess
-  ) {
-    const responses = to.respond(msg);
-    msgs.push(...responses);
-  }
+  (async () => {
+    for await (const msg of queueB) {
+      //   console.log("B got", msg);
 
-  if (isDone?.state === "fulfilled") {
-    return Promise.resolve();
-  } else {
-    await sync(to, from, msgs, to.isDone());
-  }
+      const responses = b.respond(msg);
+
+      //  await sleep();
+
+      for (const res of responses) {
+        queueA.push(res);
+      }
+    }
+  })();
+
+  (async () => {
+    for await (const msg of queueA) {
+      //  console.log("A got", msg);
+
+      const responses = a.respond(msg);
+
+      // await sleep();
+
+      for (const res of responses) {
+        queueB.push(res);
+      }
+    }
+  })();
+
+  a.isDone().then(() => queueA.close());
+  b.isDone().then(() => queueB.close());
+
+  return Promise.all([a.isDone(), b.isDone()]);
 }
