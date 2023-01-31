@@ -37,13 +37,13 @@ for (const size of sizes) {
   const setB = makeSet(size);
 
   Deno.bench(`Instantiate two sets (size ${size})`, () => {
-    const treeA = new FingerprintTree(concatMonoid, compare, "" as string);
+    const treeA = new FingerprintTree(concatMonoid, compare);
 
     for (const item of setA) {
       treeA.insert(`${item}`);
     }
 
-    const treeB = new FingerprintTree(concatMonoid, compare, "" as string);
+    const treeB = new FingerprintTree(concatMonoid, compare);
 
     for (const item of setB) {
       treeB.insert(`${item}`);
@@ -51,13 +51,13 @@ for (const size of sizes) {
   });
 
   Deno.bench(`Instantiate and sync two sets (size ${size})`, async () => {
-    const treeA = new FingerprintTree(concatMonoid, compare, "" as string);
+    const treeA = new FingerprintTree(concatMonoid, compare);
 
     for (const item of setA) {
       treeA.insert(`${item}`);
     }
 
-    const treeB = new FingerprintTree(concatMonoid, compare, "" as string);
+    const treeB = new FingerprintTree(concatMonoid, compare);
 
     for (const item of setB) {
       treeB.insert(`${item}`);

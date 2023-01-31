@@ -105,17 +105,31 @@ export class FingerprintTree<ValueType, LiftedType>
     monoid: LiftingMonoid<ValueType, LiftedType>,
     /** A function to sort values by. Will use JavaScript's default comparison if not provided. */
     compare: (a: ValueType, b: ValueType) => number,
-    lowestValue: ValueType,
   ) {
     super(compare);
 
     const maxMonoid = {
       lift: (v: ValueType) => v,
-      combine: (a: ValueType, b: ValueType) => {
+      combine: (
+        a: ValueType | undefined,
+        b: ValueType | undefined,
+      ): ValueType => {
+        if (a === undefined && b === undefined) {
+          return undefined as never;
+        }
+
+        if (b === undefined) {
+          return a as ValueType;
+        }
+
+        if (a === undefined) {
+          return b;
+        }
+
         return compare(a, b) > 0 ? a : b;
       },
-      neutral: lowestValue,
-    };
+      neutral: undefined,
+    } as LiftingMonoid<ValueType, ValueType>;
 
     /** A monoid which lifts the member into an array, and combines by concatenating together. */
     const collectorMonoid = {

@@ -24,7 +24,7 @@ Deno.test({
   sanitizeResources: false,
   sanitizeOps: false,
   fn: async () => {
-    const treeA = new FingerprintTree(concatMonoid, compare, "" as string);
+    const treeA = new FingerprintTree(concatMonoid, compare);
 
     const setA = ["ape", "cat", "eel", "fox"];
 
@@ -42,7 +42,7 @@ Deno.test({
 
     // Other peer
 
-    const treeB = new FingerprintTree(concatMonoid, compare, "" as string);
+    const treeB = new FingerprintTree(concatMonoid, compare);
 
     const setB = ["bee", "doe", "eel", "gnu"];
 

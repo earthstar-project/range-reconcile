@@ -40,7 +40,7 @@ for (const vec of vectors) {
     } else {
       return 0;
     }
-  }, "" as string);
+  });
 
   const rbTree = new RedBlackTree();
 

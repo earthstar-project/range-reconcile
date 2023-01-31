@@ -32,7 +32,6 @@ Deno.test("FingerprintTree", () => {
         return 0;
       }
     },
-    "" as string,
   );
 
   const set = ["a", "b", "c", "d", "e", "f", "g"];
