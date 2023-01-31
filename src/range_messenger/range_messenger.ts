@@ -401,11 +401,27 @@ export class RangeMessenger<EncodedMessageType, ValueType, LiftedType> {
           let changedItems = false;
 
           // LEFT HERE. Need a better way to subdivide ranges where the query loops over.
+          // E.g. rang n - f
+          // items would be in proper order: eggs, goat, node,
+          // but if we want to subdivide it's not right, you want node, eggs, goat.
+
+          // Rather than rearrange the items, do the query from the first bit to the max range, and the second bit from the min of the range, and glue them together?
+
+          // But then you need to end up getting a range three times, because we still need the right fingerprint.
+
+          // so we really need to reconstruct this array the way I'm doing.
 
           if (result.lowerBound >= result.upperBound) {
-            const indexFirstItemGteLowerBound = items.findIndex((item) => {
-              return item >= result.lowerBound;
-            });
+            let indexFirstItemGteLowerBound = 0;
+
+            for (let i = 0; i <= items.length; i++) {
+              const item = items[i];
+
+              if (item >= result.lowerBound) {
+                indexFirstItemGteLowerBound = i;
+                break;
+              }
+            }
 
             if (indexFirstItemGteLowerBound > 0) {
               const newEnd = itemsToUse.splice(0, indexFirstItemGteLowerBound);
@@ -675,9 +691,11 @@ export class RangeMessenger<EncodedMessageType, ValueType, LiftedType> {
     // In the sixth stage af the pipeline we encode the messages.
 
     // First decode the incoming messages.
+
     const decoded = this.decode(message);
 
     // Then consolidate successive payload messages into a single message with many items.
+
     const collated = this.collatePayloads(decoded);
 
     if (collated === undefined) {
@@ -690,6 +708,7 @@ export class RangeMessenger<EncodedMessageType, ValueType, LiftedType> {
     const consolidated: ProcessStageResult<ValueType, LiftedType>[] = [];
 
     // Then consolidate adjacent done messages into a single done message.
+
     for (const item of processed) {
       const res = this.consolidateAdjacentDones(item);
 
