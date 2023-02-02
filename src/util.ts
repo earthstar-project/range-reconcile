@@ -20,8 +20,6 @@ export function reconcile<E, V, L>(
       for (const msg of responses) {
         queueA.push(msg);
       }
-
-      console.groupEnd();
     }
   })();
 
@@ -162,69 +160,3 @@ export class FastFIFO<T> {
     }
   }
 }
-
-/** Execute a complete exchange between two RangeMessengers, syncing their trees. */
-/*
-export async function reconcile<E, V, L>(
-  a: RangeMessenger<E, V, L>,
-  b: RangeMessenger<E, V, L>,
-): Promise<unknown[]> {
-  const queueA = new AsyncQueue<E>();
-  const queueB = new AsyncQueue<E>();
-
-  queueB.push(...a.initialMessages());
-
-  (async () => {
-    for await (const msg of queueB) {
-      const responses = b.respond(msg);
-
-      if (responses.length) {
-        queueA.push(...responses);
-      }
-    }
-  })();
-
-  (async () => {
-    for await (const msg of queueA) {
-      const responses = a.respond(msg);
-
-      if (responses.length) {
-        queueB.push(...responses);
-      }
-    }
-  })();
-
-  a.isDone().then(() => queueA.close());
-  b.isDone().then(() => queueB.close());
-
-  return Promise.all([a.isDone(), b.isDone()]);
-}
-*/
-
-/** Execute a complete exchange between two RangeMessengers, syncing their trees. */
-/*
-export async function reconcile<E, V, L>(
-  from: RangeMessenger<E, V, L>,
-  to: RangeMessenger<E, V, L>,
-  round: number = 0,
-  messages?: AsyncIterable<E> | Iterable<E>,
-  isDone?: Deferred<unknown>,
-): Promise<void> {
-  const msgs: E[] = [];
-
-  const messagesToProcess = messages || from.initialMessages();
-
-  for await (
-    const msg of messagesToProcess
-  ) {
-    const responses = to.respond(msg);
-    msgs.push(...responses);
-  }
-
-  if (isDone?.state === "fulfilled") {
-    return Promise.resolve();
-  } else {
-    await reconcile(to, from, round + 1, msgs, to.isDone());
-  }
-}
-*/
