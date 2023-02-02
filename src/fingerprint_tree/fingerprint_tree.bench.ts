@@ -16,14 +16,14 @@ function makeSet(size: number): number[] {
 
 type BenchVector = [
   number,
-  { min: string; fstqrt: string; mid: string; thdqrt: string },
+  { fstqrt: string; mid: string; thdqrt: string },
 ];
 
 const vectors: BenchVector[] = [
-  [10, { min: "1", fstqrt: "2", mid: "5", thdqrt: "7" }],
-  [100, { min: "0", fstqrt: "25", mid: "50", thdqrt: "75" }],
-  [1000, { min: "0", fstqrt: "250", mid: "500", thdqrt: "750" }],
-  [10000, { min: "0", fstqrt: "2500", mid: "5000", thdqrt: "7500" }],
+  [10, { fstqrt: "2", mid: "5", thdqrt: "7" }],
+  [100, { fstqrt: "25", mid: "50", thdqrt: "75" }],
+  [1000, { fstqrt: "250", mid: "500", thdqrt: "750" }],
+  [10000, { fstqrt: "2500", mid: "5000", thdqrt: "7500" }],
 ];
 
 for (const vec of vectors) {
@@ -65,7 +65,9 @@ for (const vec of vectors) {
     group: `fingerprint (${vec})`,
     baseline: true,
   }, () => {
-    tree.getFingerprint(boundaries.min, boundaries.min);
+    const min = tree.getLowestValue();
+
+    tree.getFingerprint(min, min);
   });
 
   Deno.bench(`Fingerprint mid - mid (${size} items) `, {
@@ -77,13 +79,15 @@ for (const vec of vectors) {
   Deno.bench(`Fingerprint min - mid (${size} items) `, {
     group: `fingerprint (${vec})`,
   }, () => {
-    tree.getFingerprint(boundaries.min, boundaries.mid);
+    const min = tree.getLowestValue();
+    tree.getFingerprint(min, boundaries.mid);
   });
 
   Deno.bench(`Fingerprint mid - min (${size} items) `, {
     group: `fingerprint (${vec})`,
   }, () => {
-    tree.getFingerprint(boundaries.mid, boundaries.min);
+    const min = tree.getLowestValue();
+    tree.getFingerprint(boundaries.mid, min);
   });
 
   Deno.bench(`Fingerprint fstqrt - thdqrt (${size} items) `, {
