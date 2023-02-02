@@ -47,10 +47,10 @@ export class FingerprintNode<
       );
     } else if (this.left && this.right) {
       this.label = this.monoid.combine(
-        this.left?.label || this.monoid.neutral,
+        this.left.label,
         this.monoid.combine(
           this.liftedValue,
-          this.right?.label || this.monoid.neutral,
+          this.right.label,
         ),
       );
     } else {
@@ -177,7 +177,9 @@ export class FingerprintTree<ValueType, LiftedType>
       );
     }
 
-    if (debug) console.group("Rotating", direction);
+    if (debug) {
+      console.group("Rotating", direction);
+    }
 
     const replacement: NodeType<ValueType, LiftedType> =
       node[replacementDirection]!;
@@ -212,7 +214,9 @@ export class FingerprintTree<ValueType, LiftedType>
 
     replacement[direction]?.updateLabel(false, "Node rotated");
 
-    console.groupEnd();
+    if (debug) {
+      console.groupEnd();
+    }
   }
 
   removeFixup(
