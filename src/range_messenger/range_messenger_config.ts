@@ -15,6 +15,16 @@ export type RangeMessengerConfig<EncodedType, ValueType, LiftType> = {
     terminal: () => EncodedType;
   };
   decode: {
+    getType: (
+      message: EncodedType,
+    ) =>
+      | "emptySet"
+      | "lowerBound"
+      | "payload"
+      | "emptyPayload"
+      | "done"
+      | "fingerprint"
+      | "terminal";
     emptySet: (message: EncodedType) => boolean;
     lowerBound: (message: EncodedType) => ValueType;
     payload: (
@@ -97,6 +107,13 @@ export const objConfig: RangeMessengerConfig<
     }),
   },
   decode: {
+    getType: (obj) => {
+      if ("type" in obj === false) {
+        throw "Can't determine type";
+      }
+
+      return obj.type;
+    },
     emptySet: (obj) => {
       if (obj.type === "emptySet") {
         return obj.canRespond;
