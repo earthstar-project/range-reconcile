@@ -1,3 +1,8 @@
+# 1.0.1
+
+- Fixes a bug which caused value types to be used as fingerprints when
+  calculating fingerprints for certain kinds of ranges.
+
 # 1.0.0
 
 - Added `getType` to `RangeMessengerConfig.decode`

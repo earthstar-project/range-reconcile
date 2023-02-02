@@ -192,8 +192,11 @@ export class RangeMessenger<EncodedMessageType, ValueType, LiftedType> {
           return ({ "type": "terminal" });
         }
       }
-    } catch {
+    } catch (err) {
       // argh
+      console.group("range-reconcile: Could not decode message");
+      console.warn(message);
+      console.warn(err);
     }
 
     return null as never;

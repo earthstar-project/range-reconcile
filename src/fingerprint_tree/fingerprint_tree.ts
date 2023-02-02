@@ -445,7 +445,9 @@ export class FingerprintTree<ValueType, LiftedType>
           y,
         );
 
-        const synthesisedLabel = [maxValue as unknown as LiftedType, [1, [
+        const maxLifted = this.monoid.lift(maxValue);
+
+        const synthesisedLabel = [maxLifted[0], [1, [
           [maxValue],
           maxValue,
         ]]] as [
@@ -504,7 +506,8 @@ export class FingerprintTree<ValueType, LiftedType>
           maxValue,
         );
 
-        const synthesisedLabel = [maxValue as unknown as LiftedType, [1, [
+        const maxLifted = this.monoid.lift(maxValue);
+        const synthesisedLabel = [maxLifted[0], [1, [
           [maxValue],
           maxValue,
         ]]] as [
