@@ -118,94 +118,82 @@ export class RangeMessenger<EncodedMessageType, ValueType, LiftedType> {
     const lowerBound = this.lowerBoundFromPrev;
 
     try {
-      const canRespond = this.encoding.decode.emptySet(message);
+      const messageType = this.encoding.decode.getType(message);
 
-      return ({
-        type: "emptySet",
-        canRespond,
-      });
-    } catch {
-      // Not an empty set message.
-    }
+      switch (messageType) {
+        case "payload": {
+          const payloadMsg = this.encoding.decode.payload(message);
 
-    try {
-      const lowerBoundMsg = this.encoding.decode.lowerBound(message);
+          if (payloadMsg.end) {
+            this.lowerBoundFromPrev = payloadMsg.end.upperBound;
+          }
 
-      this.lowerBoundFromPrev = lowerBoundMsg;
+          return ({
+            "type": "payload",
+            lowerBound: lowerBound,
+            "payload": payloadMsg.value,
+            ...(payloadMsg.end ? { end: payloadMsg.end } : {}),
+          });
+        }
+        case "fingerprint": {
+          const fingerprintMsg = this.encoding.decode.fingerprint(message);
 
-      // Stop processing of this message here, we no longer need it.
-      return ({
-        "type": "lowerBound",
-        value: lowerBoundMsg,
-      });
-    } catch {
-      // Not a lower bound message.
-    }
+          this.lowerBoundFromPrev = fingerprintMsg.upperBound;
+          return ({
+            "type": "fingerprint",
+            lowerBound: lowerBound,
+            fingerprint: fingerprintMsg.fingerprint,
+            upperBound: fingerprintMsg.upperBound,
+          });
+        }
+        case "emptyPayload": {
+          const emptyPayloadMsg = this.encoding.decode.emptyPayload(message);
 
-    try {
-      this.encoding.decode.terminal(message);
-      return ({ "type": "terminal" });
-    } catch {
-      // Not a terminal message
-    }
+          this.lowerBoundFromPrev = emptyPayloadMsg;
 
-    try {
-      const rangeDoneUpperBound = this.encoding.decode.done(message);
+          return ({
+            lowerBound: lowerBound,
+            "type": "emptyPayload",
+            upperBound: emptyPayloadMsg,
+          });
+        }
+        case "done": {
+          const rangeDoneUpperBound = this.encoding.decode.done(message);
 
-      this.lowerBoundFromPrev = rangeDoneUpperBound;
+          this.lowerBoundFromPrev = rangeDoneUpperBound;
 
-      return ({
-        lowerBound: lowerBound,
-        type: "done",
-        upperBound: rangeDoneUpperBound,
-      });
-    } catch {
-      // Not a done message
-    }
+          return ({
+            lowerBound: lowerBound,
+            type: "done",
+            upperBound: rangeDoneUpperBound,
+          });
+        }
+        case "emptySet": {
+          const canRespond = this.encoding.decode.emptySet(message);
 
-    try {
-      const fingerprintMsg = this.encoding.decode.fingerprint(message);
+          return ({
+            type: "emptySet",
+            canRespond,
+          });
+        }
+        case "lowerBound": {
+          const lowerBoundMsg = this.encoding.decode.lowerBound(message);
 
-      this.lowerBoundFromPrev = fingerprintMsg.upperBound;
-      return ({
-        "type": "fingerprint",
-        lowerBound: lowerBound,
-        fingerprint: fingerprintMsg.fingerprint,
-        upperBound: fingerprintMsg.upperBound,
-      });
-    } catch {
-      // Not a fingerprint message
-    }
+          this.lowerBoundFromPrev = lowerBoundMsg;
 
-    try {
-      const payloadMsg = this.encoding.decode.payload(message);
-
-      if (payloadMsg.end) {
-        this.lowerBoundFromPrev = payloadMsg.end.upperBound;
+          // Stop processing of this message here, we no longer need it.
+          return ({
+            "type": "lowerBound",
+            value: lowerBoundMsg,
+          });
+        }
+        case "terminal": {
+          this.encoding.decode.terminal(message);
+          return ({ "type": "terminal" });
+        }
       }
-
-      return ({
-        "type": "payload",
-        lowerBound: lowerBound,
-        "payload": payloadMsg.value,
-        ...(payloadMsg.end ? { end: payloadMsg.end } : {}),
-      });
     } catch {
-      // Not a payload message.
-    }
-
-    try {
-      const emptyPayloadMsg = this.encoding.decode.emptyPayload(message);
-
-      this.lowerBoundFromPrev = emptyPayloadMsg;
-
-      return ({
-        lowerBound: lowerBound,
-        "type": "emptyPayload",
-        upperBound: emptyPayloadMsg,
-      });
-    } catch {
-      // Not an empty payload message
+      // argh
     }
 
     return null as never;
@@ -303,7 +291,10 @@ export class RangeMessenger<EncodedMessageType, ValueType, LiftedType> {
           value: lowestValue,
         }];
 
-        const allItems = Array.from(this.tree.lnrValues());
+        const { items: allItems } = this.tree.getFingerprint(
+          lowestValue,
+          lowestValue,
+        );
 
         for (let i = 0; i < allItems.length; i++) {
           const item = allItems[i];
@@ -373,6 +364,7 @@ export class RangeMessenger<EncodedMessageType, ValueType, LiftedType> {
 
           return acc;
         } else {
+          // Otherwise we subdivide.
           const chunkSize = Math.ceil(size / this.rangeDivision);
           const acc: ProcessStageResult<ValueType, LiftedType>[] = [];
 
@@ -399,10 +391,28 @@ export class RangeMessenger<EncodedMessageType, ValueType, LiftedType> {
           const itemsToUse = items;
           let changedItems = false;
 
+          // LEFT HERE. Need a better way to subdivide ranges where the query loops over.
+          // E.g. rang n - f
+          // items would be in proper order: eggs, goat, node,
+          // but if we want to subdivide it's not right, you want node, eggs, goat.
+
+          // Rather than rearrange the items, do the query from the first bit to the max range, and the second bit from the min of the range, and glue them together?
+
+          // But then you need to end up getting a range three times, because we still need the right fingerprint.
+
+          // so we really need to reconstruct this array the way I'm doing.
+
           if (result.lowerBound >= result.upperBound) {
-            const indexFirstItemGteLowerBound = items.findIndex((item) => {
-              return item >= result.lowerBound;
-            });
+            let indexFirstItemGteLowerBound = 0;
+
+            for (let i = 0; i <= items.length; i++) {
+              const item = items[i];
+
+              if (item >= result.lowerBound) {
+                indexFirstItemGteLowerBound = i;
+                break;
+              }
+            }
 
             if (indexFirstItemGteLowerBound > 0) {
               const newEnd = itemsToUse.splice(0, indexFirstItemGteLowerBound);
@@ -568,6 +578,10 @@ export class RangeMessenger<EncodedMessageType, ValueType, LiftedType> {
   private checkIsDone(
     message: ProcessStageResult<ValueType, LiftedType>,
   ): void {
+    if (this.isDoneTee.state !== "pending") {
+      return;
+    }
+
     switch (message.type) {
       case "emptySet": {
         if (message.canRespond) {
@@ -658,9 +672,11 @@ export class RangeMessenger<EncodedMessageType, ValueType, LiftedType> {
     // In the sixth stage af the pipeline we encode the messages.
 
     // First decode the incoming messages.
+
     const decoded = this.decode(message);
 
     // Then consolidate successive payload messages into a single message with many items.
+
     const collated = this.collatePayloads(decoded);
 
     if (collated === undefined) {
@@ -668,11 +684,11 @@ export class RangeMessenger<EncodedMessageType, ValueType, LiftedType> {
     }
 
     // Then formulate responses from the incoming messages.
-    const processed = this.process(collated || []);
-
-    const consolidated: ProcessStageResult<ValueType, LiftedType>[] = [];
+    const processed = this.process(collated);
 
     // Then consolidate adjacent done messages into a single done message.
+    const consolidated: ProcessStageResult<ValueType, LiftedType>[] = [];
+
     for (const item of processed) {
       const res = this.consolidateAdjacentDones(item);
 
@@ -681,11 +697,11 @@ export class RangeMessenger<EncodedMessageType, ValueType, LiftedType> {
       }
     }
 
-    // Determine if reconciliation is finished by checking the messages.
     for (const item of consolidated) {
       this.checkIsDone(item);
     }
 
+    // Determine if reconciliation is finished by checking the messages.
     const encoded: EncodedMessageType[] = [];
 
     // Encode the messages.

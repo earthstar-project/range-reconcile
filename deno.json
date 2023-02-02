@@ -3,5 +3,6 @@
     "test": "deno test src",
     "bench": "deno bench --unstable src",
     "npm": "deno run --allow-read --allow-write --allow-env --allow-net --allow-run scripts/build_npm.ts"
-  }
+  },
+  "lock": false
 }

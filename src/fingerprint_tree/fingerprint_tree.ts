@@ -7,7 +7,7 @@ import { combineMonoid, LiftingMonoid, sizeMonoid } from "../lifting_monoid.ts";
 
 const debug = false;
 
-/** A node for a FingerprintTree, augmented with a label and lifted value. Can update the labelsk of its ancestors. */
+/** A node for a FingerprintTree, augmented with a label and lifted value. Can update the labels of its ancestors. */
 export class FingerprintNode<
   ValueType = string,
   LiftType = string,
@@ -47,10 +47,10 @@ export class FingerprintNode<
       );
     } else if (this.left && this.right) {
       this.label = this.monoid.combine(
-        this.left?.label || this.monoid.neutral,
+        this.left.label,
         this.monoid.combine(
           this.liftedValue,
-          this.right?.label || this.monoid.neutral,
+          this.right.label,
         ),
       );
     } else {
@@ -82,8 +82,9 @@ export class FingerprintNode<
   }
 }
 
-export type NodeType<V, L> = FingerprintNode<V, [L, [number, V[]]]>;
-type CombinedLabel<V, L> = [L, [number, V[]]];
+// Lifted type of range, size of range, items in range, max node in range.
+type CombinedLabel<V, L> = [L, [number, [V[], V]]];
+export type NodeType<V, L> = FingerprintNode<V, CombinedLabel<V, L>>;
 
 /** A self-balancing tree which can return fingerprints for ranges of items it holds using a provided monoid. */
 export class FingerprintTree<ValueType, LiftedType>
@@ -92,7 +93,12 @@ export class FingerprintTree<ValueType, LiftedType>
     | NodeType<ValueType, LiftedType>
     | null;
 
-  monoid: LiftingMonoid<ValueType, [LiftedType, [number, ValueType[]]]>;
+  monoid: LiftingMonoid<
+    ValueType,
+    [LiftedType, [number, [ValueType[], ValueType]]]
+  >;
+
+  private cachedMinNode: NodeType<ValueType, LiftedType> | null = null;
 
   constructor(
     /** The lifting monoid which is used to label nodes and derive fingerprints from ranges. */
@@ -102,15 +108,46 @@ export class FingerprintTree<ValueType, LiftedType>
   ) {
     super(compare);
 
+    const maxMonoid = {
+      lift: (v: ValueType) => v,
+      combine: (
+        a: ValueType | undefined,
+        b: ValueType | undefined,
+      ): ValueType => {
+        if (a === undefined && b === undefined) {
+          return undefined as never;
+        }
+
+        if (b === undefined) {
+          return a as ValueType;
+        }
+
+        if (a === undefined) {
+          return b;
+        }
+
+        return compare(a, b) > 0 ? a : b;
+      },
+      neutral: undefined,
+    } as LiftingMonoid<ValueType, ValueType>;
+
+    /** A monoid which lifts the member into an array, and combines by concatenating together. */
+    const collectorMonoid = {
+      lift: (v: ValueType) => [v],
+      combine: (a: ValueType[], b: ValueType[]) => {
+        return a.concat(b);
+      },
+      neutral: [],
+    };
+
+    const combinedCollectorMaxMonoid = combineMonoid(
+      collectorMonoid,
+      maxMonoid,
+    );
+
     this.monoid = combineMonoid(
       monoid,
-      combineMonoid(sizeMonoid, {
-        lift: (v: ValueType) => [v],
-        combine: (a: ValueType[], b: ValueType[]) => {
-          return a.concat(b);
-        },
-        neutral: [],
-      }),
+      combineMonoid(sizeMonoid, combinedCollectorMaxMonoid),
     );
   }
 
@@ -118,6 +155,10 @@ export class FingerprintTree<ValueType, LiftedType>
   getLowestValue(): ValueType {
     if (!this.root) {
       throw new Error("Can't get a range from a tree with no items");
+    }
+
+    if (this.cachedMinNode) {
+      return this.cachedMinNode.value;
     }
 
     return this.root.findMinNode().value;
@@ -136,7 +177,9 @@ export class FingerprintTree<ValueType, LiftedType>
       );
     }
 
-    if (debug) console.group("Rotating", direction);
+    if (debug) {
+      console.group("Rotating", direction);
+    }
 
     const replacement: NodeType<ValueType, LiftedType> =
       node[replacementDirection]!;
@@ -171,7 +214,9 @@ export class FingerprintTree<ValueType, LiftedType>
 
     replacement[direction]?.updateLabel(false, "Node rotated");
 
-    console.groupEnd();
+    if (debug) {
+      console.groupEnd();
+    }
   }
 
   removeFixup(
@@ -222,19 +267,36 @@ export class FingerprintTree<ValueType, LiftedType>
     if (!this.root) {
       this.root = new FingerprintNode(null, value, this.monoid);
       this._size++;
+      this.cachedMinNode = this.root;
       return this.root;
     } else {
       let node: NodeType<ValueType, LiftedType> = this.root;
+
+      let isMinNode = true;
+
       while (true) {
         const order: number = this.compare(value, node.value);
 
-        if (order === 0) break;
+        if (order === 0) {
+          isMinNode = false;
+
+          break;
+        }
         const direction: Direction = order < 0 ? "left" : "right";
+
+        if (isMinNode && direction === "right") {
+          isMinNode = false;
+        }
+
         if (node[direction]) {
           node = node[direction]!;
         } else {
           node[direction] = new FingerprintNode(node, value, this.monoid);
           this._size++;
+
+          if (isMinNode) {
+            this.cachedMinNode = node[direction];
+          }
 
           return node[direction];
         }
@@ -335,21 +397,26 @@ export class FingerprintTree<ValueType, LiftedType>
       };
     }
 
-    const nodeToPass = nextTree || this.findGteNode(
-      x,
-    ) as NodeType<ValueType, LiftedType>;
-
     const order = this.compare(x, y);
 
     if (order === 0) {
+      // The full range. Get the root label.
       return {
         fingerprint: this.root.label[0],
         size: this.root.label[1][0],
-        items: this.root.label[1][1],
-        nextTree: null,
+        items: this.root.label[1][1][0],
+        nextTree: this.cachedMinNode,
       };
     } else if (order < 0) {
-      const { label, nextTree } = this.aggregateUntil(
+      const minNode = this.compare(x, this.cachedMinNode!.value) <= 0
+        ? this.cachedMinNode
+        : null;
+
+      const nodeToPass = nextTree || minNode || this.findGteNode(
+        x,
+      ) as NodeType<ValueType, LiftedType>;
+
+      const { label, nextTree: nextNextTree } = this.aggregateUntil(
         nodeToPass,
         x,
         y,
@@ -358,49 +425,105 @@ export class FingerprintTree<ValueType, LiftedType>
       return {
         fingerprint: label[0],
         size: label[1][0],
-        items: label[1][1],
-        nextTree,
+        items: label[1][1][0],
+        nextTree: nextNextTree,
       };
     } else {
-      const minNode = this.root.findMinNode();
-      const maxNode = this.root.findMaxNode();
+      // A sub-range where the upper bound is less than the upper bound.
+      // e.g. [c, a) or [c, b];
 
-      const { label: label0, nextTree: nextTree0 } = this.aggregateUntil(
-        nodeToPass,
-        x,
-        maxNode.value,
-      );
+      const minNode = this.cachedMinNode!;
+      const maxValue = this.root.label[1][1][1];
 
-      const label = this.monoid.combine(
-        label0,
-        this.compare(maxNode.value, x) >= 0
-          ? this.monoid.lift(maxNode.value)
-          : this.monoid.neutral,
-      );
+      const willHaveHead = this.compare(y, minNode.value) > 0;
+      const willHaveTail = this.compare(x, maxValue) <= 0;
 
-      if (minNode.value === y) {
+      if (willHaveHead && willHaveTail) {
+        const { label: firstLabel, nextTree: firstTree } = this.aggregateUntil(
+          minNode as NodeType<ValueType, LiftedType>,
+          minNode.value,
+          y,
+        );
+
+        const synthesisedLabel = [maxValue as unknown as LiftedType, [1, [
+          [maxValue],
+          maxValue,
+        ]]] as [
+          LiftedType,
+          [number, [ValueType[], ValueType]],
+        ];
+
+        const nodeToPass = nextTree || this.findGteNode(
+          x,
+        ) as NodeType<ValueType, LiftedType>;
+
+        const { label: lastLabel } = this.aggregateUntil(
+          nodeToPass,
+          x,
+          maxValue,
+        );
+
+        const combinedLabel = this.monoid.combine(
+          lastLabel,
+          synthesisedLabel,
+        );
+
+        const newLabel = this.monoid.combine(firstLabel, combinedLabel);
+
+        return {
+          fingerprint: newLabel[0],
+          size: newLabel[1][0],
+          items: newLabel[1][1][0],
+          nextTree: firstTree,
+        };
+      } else if (willHaveHead) {
+        const { label, nextTree } = this.aggregateUntil(
+          minNode,
+          minNode.value,
+          y,
+        );
+
         return {
           fingerprint: label[0],
           size: label[1][0],
-          items: label[1][1],
-          nextTree: nextTree0,
+          items: label[1][1][0],
+          nextTree: nextTree,
+        };
+      } else {
+        const minNode = this.compare(x, this.cachedMinNode!.value) <= 0
+          ? this.cachedMinNode
+          : null;
+
+        const nodeToPass = nextTree || minNode || this.findGteNode(
+          x,
+        ) as NodeType<ValueType, LiftedType>;
+
+        const { label } = this.aggregateUntil(
+          nodeToPass,
+          x,
+          maxValue,
+        );
+
+        const synthesisedLabel = [maxValue as unknown as LiftedType, [1, [
+          [maxValue],
+          maxValue,
+        ]]] as [
+          LiftedType,
+          [number, [ValueType[], ValueType]],
+        ];
+
+        const combinedLabel = this.monoid.combine(
+          label,
+          synthesisedLabel,
+        );
+
+        return {
+          fingerprint: combinedLabel[0],
+          size: combinedLabel[1][0],
+          items: combinedLabel[1][1][0],
+          nextTree: minNode,
         };
       }
-
-      const { label: label2, nextTree } = this.aggregateUntil(
-        minNode as NodeType<ValueType, LiftedType>,
-        minNode.value,
-        y,
-      );
-
-      const combined = this.monoid.combine(label2, label);
-
-      return {
-        fingerprint: combined[0],
-        size: combined[1][0],
-        items: combined[1][1],
-        nextTree,
-      };
     }
   }
 
@@ -455,7 +578,7 @@ export class FingerprintTree<ValueType, LiftedType>
     let acc: CombinedLabel<ValueType, LiftedType> = this.monoid.neutral;
     let tree = node;
 
-    while (this.compare(tree.findMaxNode().value, y) < 0) {
+    while (this.compare(tree.label[1][1][1], y) < 0) {
       if (this.compare(tree.value, x) >= 0) {
         acc = this.monoid.combine(
           acc,
@@ -499,7 +622,7 @@ export class FingerprintTree<ValueType, LiftedType>
 
         tree = tree.right;
       } else if (
-        tree.left === null || this.compare(tree.left.findMaxNode().value, y) < 0
+        tree.left === null || this.compare(tree.label[1][1][1], y) < 0
       ) {
         return {
           label: this.monoid.combine(

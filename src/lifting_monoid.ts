@@ -1,3 +1,5 @@
+import { FingerprintNode } from "./fingerprint_tree/fingerprint_tree.ts";
+
 export type LiftingMonoid<ValueType, LiftedType> = {
   lift: (i: ValueType) => LiftedType;
   combine: (

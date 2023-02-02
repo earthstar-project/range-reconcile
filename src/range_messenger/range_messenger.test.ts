@@ -3,7 +3,7 @@ import { FingerprintTree } from "../fingerprint_tree/fingerprint_tree.ts";
 import { concatMonoid } from "../lifting_monoid.ts";
 import { RangeMessenger } from "./range_messenger.ts";
 import { objConfig } from "./range_messenger_config.ts";
-import { sync } from "../util.ts";
+import { reconcile } from "../util.ts";
 
 function multiplyElements(elements: string[], by: number): string[] {
   const acc = [];
@@ -89,7 +89,7 @@ async function createTestCase() {
     rangeDivision: 2,
   });
 
-  await sync(brokerA, brokerB);
+  await reconcile(brokerA, brokerB);
 
   return {
     setA: Array.from(treeA.lnrValues()),
