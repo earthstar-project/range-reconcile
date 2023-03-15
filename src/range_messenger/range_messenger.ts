@@ -477,22 +477,51 @@ export class RangeMessenger<EncodedMessageType, ValueType, LiftedType> {
             }];
           }
 
-          const acc: ProcessStageResult<ValueType, LiftedType>[] = [];
+          const acc: {
+            type: "payload";
+            payload: ValueType;
+            end?: { canRespond: boolean; upperBound: ValueType };
+          }[] = [];
 
           for (let i = 0; i < size; i++) {
+            // Do not include items we were just sent by the other side.
+            let wasJustReceived = false;
+
+            for (
+              let ogPayloadIdx = 0;
+              ogPayloadIdx < result.payload.length;
+              ogPayloadIdx++
+            ) {
+              const isEqual = this.tree.isValueEqual(
+                items[i],
+                result.payload[ogPayloadIdx],
+              );
+
+              if (isEqual) {
+                wasJustReceived = true;
+              }
+            }
+
+            if (wasJustReceived) {
+              continue;
+            }
+
             acc.push({
               type: "payload",
               payload: items[i],
-              ...(i === items.length - 1
-                ? {
-                  end: {
-                    upperBound: result.end.upperBound,
-                    canRespond: false,
-                  },
-                }
-                : {}),
             });
           }
+
+          // Modify the last item to have an end.
+          const last = acc[acc.length - 1];
+
+          acc[acc.length - 1] = {
+            ...last,
+            end: {
+              upperBound: result.end.upperBound,
+              canRespond: false,
+            },
+          };
 
           return acc;
         } else {

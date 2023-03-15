@@ -1,3 +1,9 @@
+# 1.0.2
+
+- Improved efficiency of reconciliation by no longer re-sending any payloads
+  which were just received. This reduces the number of messages sent and the
+  overhead needed to process them.
+
 # 1.0.1
 
 - Fixes a bug which caused value types to be used as fingerprints when
