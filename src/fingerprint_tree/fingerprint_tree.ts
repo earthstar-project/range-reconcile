@@ -640,4 +640,8 @@ export class FingerprintTree<ValueType, LiftedType>
     }
     return { label: acc2, nextTree: null };
   }
+
+  isValueEqual(a: ValueType, b: ValueType): boolean {
+    return this.compare(a, b) === 0;
+  }
 }
